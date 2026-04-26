@@ -1,0 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --canvas: #070c18;
+  --surface: #0d1424;
+  --card: #111d2e;
+  --border: #1a2d45;
+  --border-subtle: #162038;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  background-color: var(--canvas);
+  color: #e2e8f0;
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #2a4d7a; }
+
+/* Glow effects for critical metrics */
+.glow-red { box-shadow: 0 0 20px rgba(239, 68, 68, 0.15); }
+.glow-amber { box-shadow: 0 0 20px rgba(245, 158, 11, 0.12); }
+.glow-green { box-shadow: 0 0 20px rgba(16, 185, 129, 0.12); }
+
+/* Table styles */
+.data-table tbody tr:hover {
+  background: rgba(59, 130, 246, 0.05);
+}
+
+/* Animated gradient for health score arc */
+@keyframes dash {
+  to { stroke-dashoffset: 0; }
+}
+
+/* Tooltip */
+.nexus-tooltip {
+  background: #0d1424;
+  border: 1px solid #1a2d45;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: #94a3b8;
+  max-width: 280px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
