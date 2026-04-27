@@ -10,7 +10,9 @@ import {
 import {
   ChevronRight, RefreshCw, AlertTriangle, CheckCircle2, XCircle,
   Zap, TrendingUp, Activity, Cpu, Info, Download, FileSpreadsheet, FileText,
+  HelpCircle,
 } from "lucide-react";
+import { ExplainPanel } from "@/components/ExplainPanel";
 import type { OrchestratorResult } from "@/lib/engines/orchestrator";
 import type { DCMAOutput } from "@/lib/engines/dcma/index";
 import type { CPMOutput }  from "@/lib/engines/cpm/index";
@@ -170,8 +172,9 @@ function ScoreRing({ score, label }: { score: number; label: string }) {
 
 // ─── Section wrapper ─────────────────────────────────────────────────────────
 
-function Section({ title, icon, children, score }: {
-  title: string; icon: React.ReactNode; children: React.ReactNode; score?: number;
+function Section({ title, icon, children, score, metricId, onExplain }: {
+  title: string; icon: React.ReactNode; children: React.ReactNode;
+  score?: number; metricId?: string; onExplain?: (m: string) => void;
 }) {
   return (
     <div className="rounded-xl border border-border bg-card p-5 space-y-4">
@@ -180,14 +183,26 @@ function Section({ title, icon, children, score }: {
           {icon}
           {title}
         </div>
-        {score !== undefined && (
-          <span
-            className="text-xs font-bold px-2 py-0.5 rounded"
-            style={{ color: scoreColor(score), background: `${scoreColor(score)}1a` }}
-          >
-            Score {score}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {score !== undefined && (
+            <span
+              className="text-xs font-bold px-2 py-0.5 rounded"
+              style={{ color: scoreColor(score), background: `${scoreColor(score)}1a` }}
+            >
+              Score {score}
+            </span>
+          )}
+          {metricId && onExplain && (
+            <button
+              onClick={() => onExplain(metricId)}
+              className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-text-secondary hover:text-primary hover:bg-primary/10 rounded-md border border-transparent hover:border-primary/20 transition-all"
+              title="Explain this metric"
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+              Explain
+            </button>
+          )}
+        </div>
       </div>
       {children}
     </div>
@@ -196,7 +211,7 @@ function Section({ title, icon, children, score }: {
 
 // ─── DCMA Panel ──────────────────────────────────────────────────────────────
 
-function DCMAPanel({ data, projectId }: { data: DCMAOutput; projectId: string }) {
+function DCMAPanel({ data, projectId, onExplain }: { data: DCMAOutput; projectId: string; onExplain?: (m: string) => void }) {
   const router = useRouter();
   const d = data.detail;
   const passed    = d.check_results.filter((c) => c.status === "Pass").length;
@@ -209,6 +224,8 @@ function DCMAPanel({ data, projectId }: { data: DCMAOutput; projectId: string })
       title="DCMA 14-Point Schedule Assessment"
       icon={<CheckCircle2 className="w-4 h-4 text-primary" />}
       score={data.summary.score}
+      metricId="dcma_score"
+      onExplain={onExplain}
     >
       {/* Headline metrics */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -354,7 +371,7 @@ function DCMAPanel({ data, projectId }: { data: DCMAOutput; projectId: string })
 
 // ─── CPM Panel ───────────────────────────────────────────────────────────────
 
-function CPMPanel({ data }: { data: CPMOutput }) {
+function CPMPanel({ data, onExplain }: { data: CPMOutput; onExplain?: (m: string) => void }) {
   const d = data.detail;
 
   // Build float distribution buckets from float_records
@@ -377,6 +394,8 @@ function CPMPanel({ data }: { data: CPMOutput }) {
       title="Critical Path Method (CPM)"
       icon={<Activity className="w-4 h-4 text-warning" />}
       score={data.summary.score}
+      metricId="cpli"
+      onExplain={onExplain}
     >
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
@@ -434,7 +453,7 @@ function CPMPanel({ data }: { data: CPMOutput }) {
 
 // ─── EVM Panel ───────────────────────────────────────────────────────────────
 
-function EVMPanel({ data }: { data: EVMOutput }) {
+function EVMPanel({ data, onExplain }: { data: EVMOutput; onExplain?: (m: string) => void }) {
   const d = data.detail;
 
   const metrics = [
@@ -457,6 +476,8 @@ function EVMPanel({ data }: { data: EVMOutput }) {
       title="Earned Value Management (EVM)"
       icon={<TrendingUp className="w-4 h-4 text-success" />}
       score={data.summary.score}
+      metricId="spi"
+      onExplain={onExplain}
     >
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {metrics.map(({ key, value, warn, crit, formula }) => (
@@ -511,7 +532,7 @@ function EVMPanel({ data }: { data: EVMOutput }) {
 
 // ─── Monte Carlo Panel ───────────────────────────────────────────────────────
 
-function MonteCarloPanel({ data }: { data: MonteCarloOutput }) {
+function MonteCarloPanel({ data, onExplain }: { data: MonteCarloOutput; onExplain?: (m: string) => void }) {
   const d = data.detail;
 
   // Tornado chart — top 10 (field is "tornado", sensitivity = correlation)
@@ -542,6 +563,8 @@ function MonteCarloPanel({ data }: { data: MonteCarloOutput }) {
       title="Monte Carlo Simulation"
       icon={<Cpu className="w-4 h-4 text-purple-400" />}
       score={data.summary.score}
+      metricId="on_time_pct"
+      onExplain={onExplain}
     >
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
         <div className="bg-surface rounded-lg p-3 text-center">
@@ -636,8 +659,9 @@ export default function AnalysisPage() {
   const params = useParams<{ id: string }>();
   const project = PROJECTS.find((p) => p.id === params.id);
 
-  const [result,  setResult]  = useState<OrchestratorResult | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [result,        setResult]        = useState<OrchestratorResult | null>(null);
+  const [loading,       setLoading]       = useState(false);
+  const [explainMetric, setExplainMetric] = useState<string | null>(null);
   const [error,   setError]   = useState<string | null>(null);
 
   const run = useCallback(async () => {
@@ -769,10 +793,10 @@ export default function AnalysisPage() {
       {/* Engine panels */}
       {result && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {dcma && <DCMAPanel data={dcma} projectId={params.id} />}
-          {cpm  && <CPMPanel  data={cpm}  />}
-          {evm  && <EVMPanel  data={evm}  />}
-          {mc   && <MonteCarloPanel data={mc} />}
+          {dcma && <DCMAPanel data={dcma} projectId={params.id} onExplain={setExplainMetric} />}
+          {cpm  && <CPMPanel  data={cpm}  onExplain={setExplainMetric} />}
+          {evm  && <EVMPanel  data={evm}  onExplain={setExplainMetric} />}
+          {mc   && <MonteCarloPanel data={mc} onExplain={setExplainMetric} />}
         </div>
       )}
 
@@ -787,6 +811,13 @@ export default function AnalysisPage() {
           Monte Carlo uses {mc?.detail.iterations?.toLocaleString() ?? "500"} PERT-sampled iterations with seeded PRNG for deterministic replay.
         </p>
       </div>
+
+      {/* Explainability Panel — slides in from right */}
+      <ExplainPanel
+        projectId={params.id}
+        metricId={explainMetric}
+        onClose={() => setExplainMetric(null)}
+      />
     </div>
   );
 }
