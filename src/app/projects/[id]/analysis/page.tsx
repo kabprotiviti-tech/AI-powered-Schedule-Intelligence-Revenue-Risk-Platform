@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -93,7 +93,8 @@ function Section({ title, icon, children, score }: {
 
 // ─── DCMA Panel ──────────────────────────────────────────────────────────────
 
-function DCMAPanel({ data }: { data: DCMAOutput }) {
+function DCMAPanel({ data, projectId }: { data: DCMAOutput; projectId: string }) {
+  const router = useRouter();
   const d = data.detail;
   const passed    = d.check_results.filter((c) => c.status === "Pass").length;
   const total     = d.check_results.filter((c) => c.status !== "N/A").length;
@@ -152,9 +153,16 @@ function DCMAPanel({ data }: { data: DCMAOutput }) {
           <tbody>
             {d.check_results.map((c) => {
               const vbc = d.violations_by_check[c.check_code];
-              return (
-                <tr key={c.check_code} className="border-b border-border/40 hover:bg-surface/50">
-                  <td className="py-1.5 pr-3 text-text-primary">{c.check_name}</td>
+              const drillHref = c.failed_count > 0
+                ? `/projects/${projectId}/drill-down?check=${c.check_code}`
+                : undefined;
+              const rowClass = `border-b border-border/40 hover:bg-surface/50 ${drillHref ? "cursor-pointer" : ""}`;
+              const inner = (
+                <>
+                  <td className="py-1.5 pr-3 text-text-primary">
+                    <span className={drillHref ? "group-hover:underline decoration-primary/50" : ""}>{c.check_name}</span>
+                    {drillHref && <ChevronRight className="w-3 h-3 inline-block ml-1 opacity-0 group-hover:opacity-60 text-primary" />}
+                  </td>
                   <td className={`text-right px-2 tabular-nums font-medium ${
                     c.failed_count > 0 ? (c.severity_weight === 3 ? "text-danger" : "text-warning") : "text-text-secondary"
                   }`}>
@@ -176,6 +184,16 @@ function DCMAPanel({ data }: { data: DCMAOutput }) {
                       {c.status}
                     </span>
                   </td>
+                </>
+              );
+              return (
+                <tr
+                  key={c.check_code}
+                  className={`${rowClass} group`}
+                  onClick={() => drillHref && router.push(drillHref)}
+                  title={drillHref ? `View all ${c.failed_count} violations → ${c.check_name}` : undefined}
+                >
+                  {inner}
                 </tr>
               );
             })}
@@ -645,7 +663,7 @@ export default function AnalysisPage() {
       {/* Engine panels */}
       {result && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {dcma && <DCMAPanel data={dcma} />}
+          {dcma && <DCMAPanel data={dcma} projectId={params.id} />}
           {cpm  && <CPMPanel  data={cpm}  />}
           {evm  && <EVMPanel  data={evm}  />}
           {mc   && <MonteCarloPanel data={mc} />}
