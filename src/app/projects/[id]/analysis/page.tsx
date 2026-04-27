@@ -94,7 +94,12 @@ function Section({ title, icon, children, score }: {
 // ─── DCMA Panel ──────────────────────────────────────────────────────────────
 
 function DCMAPanel({ data }: { data: DCMAOutput }) {
-  const { detail } = data;
+  const d = data.detail;
+  const passed    = d.check_results.filter((c) => c.status === "Pass").length;
+  const total     = d.check_results.filter((c) => c.status !== "N/A").length;
+  const critFails = d.critical_failures.length;
+  const highFails = d.check_results.filter((c) => c.status === "Fail" && c.severity_weight === 2).length;
+
   return (
     <Section
       title="DCMA 14-Point Schedule Assessment"
@@ -103,23 +108,31 @@ function DCMAPanel({ data }: { data: DCMAOutput }) {
     >
       {/* Headline metrics */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {(() => {
-          const passed = detail.check_results.filter((c) => c.status === "Pass").length;
-          const total  = detail.check_results.filter((c) => c.status !== "N/A").length;
-          const critFails = detail.critical_failures.length;
-          const highFails = detail.check_results.filter((c) => c.status === "Fail" && c.severity_weight === 2).length;
-          return [
-            { label: "Checks Passed",  value: `${passed} / ${total}` },
-            { label: "Critical Fails", value: critFails, danger: critFails > 0 },
-            { label: "High Fails",     value: highFails, warn: highFails > 0 },
-            { label: "Activities",     value: fmtInt(detail.total_activities) },
-          ];
-        })().map(({ label, value, danger, warn }) => (
+        {[
+          { label: "Checks Passed",    value: `${passed} / ${total}` },
+          { label: "Critical Fails",   value: critFails,              danger: critFails > 0 },
+          { label: "High Fails",       value: highFails,              warn: highFails > 0 },
+          { label: "Total Violations", value: d.total_violations,     danger: d.total_violations > 20 },
+        ].map(({ label, value, danger, warn }) => (
           <div key={label} className="bg-surface rounded-lg p-3 text-center">
             <div className={`text-xl font-bold ${danger ? "text-danger" : warn ? "text-warning" : "text-text-primary"}`}>
               {value}
             </div>
             <div className="text-xs text-text-secondary mt-1">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Risk summary strip */}
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        {[
+          { label: "Critical",    count: d.violations_by_severity.Critical.length, color: "text-danger" },
+          { label: "High",        count: d.violations_by_severity.High.length,     color: "text-warning" },
+          { label: "Schedule Risk", count: `${d.total_schedule_impact_days}d`,     color: "text-text-primary" },
+        ].map(({ label, count, color }) => (
+          <div key={label} className="bg-surface rounded p-2 text-center">
+            <div className={`font-bold text-base ${color}`}>{count}</div>
+            <div className="text-text-secondary mt-0.5">{label}</div>
           </div>
         ))}
       </div>
@@ -130,48 +143,84 @@ function DCMAPanel({ data }: { data: DCMAOutput }) {
           <thead>
             <tr className="text-text-secondary border-b border-border">
               <th className="text-left py-2 pr-3 font-medium">Check</th>
+              <th className="text-right py-2 px-2 font-medium">Violations</th>
               <th className="text-right py-2 px-2 font-medium">Pass%</th>
-              <th className="text-right py-2 px-2 font-medium">Threshold</th>
+              <th className="text-right py-2 px-2 font-medium">Risk%</th>
               <th className="text-right py-2 pl-2 font-medium">Status</th>
             </tr>
           </thead>
           <tbody>
-            {detail.check_results.map((c) => (
-              <tr key={c.check_code} className="border-b border-border/40 hover:bg-surface/50">
-                <td className="py-1.5 pr-3 text-text-primary">{c.check_name}</td>
-                <td className="text-right px-2 tabular-nums">
-                  {c.status === "N/A" ? "N/A" : `${c.pass_rate_pct.toFixed(1)}%`}
-                </td>
-                <td className="text-right px-2 tabular-nums text-text-secondary">
-                  {c.status === "N/A" ? "—" : `≥${c.threshold_pct}%`}
-                </td>
-                <td className="text-right pl-2">
-                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                    c.status === "Pass"    ? "bg-success/10 text-success" :
-                    c.status === "Warning" ? "bg-warning/10 text-warning" :
-                    c.status === "N/A"     ? "bg-surface text-text-secondary" :
-                    "bg-danger/10 text-danger"
+            {d.check_results.map((c) => {
+              const vbc = d.violations_by_check[c.check_code];
+              return (
+                <tr key={c.check_code} className="border-b border-border/40 hover:bg-surface/50">
+                  <td className="py-1.5 pr-3 text-text-primary">{c.check_name}</td>
+                  <td className={`text-right px-2 tabular-nums font-medium ${
+                    c.failed_count > 0 ? (c.severity_weight === 3 ? "text-danger" : "text-warning") : "text-text-secondary"
                   }`}>
-                    {c.status}
-                  </span>
-                </td>
-              </tr>
-            ))}
+                    {c.status === "N/A" ? "—" : c.failed_count}
+                  </td>
+                  <td className="text-right px-2 tabular-nums">
+                    {c.status === "N/A" ? "N/A" : `${c.pass_rate_pct.toFixed(1)}%`}
+                  </td>
+                  <td className="text-right px-2 tabular-nums text-text-secondary">
+                    {vbc && vbc.subtotal_risk_pct > 0 ? `${vbc.subtotal_risk_pct.toFixed(1)}%` : "—"}
+                  </td>
+                  <td className="text-right pl-2">
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                      c.status === "Pass"    ? "bg-success/10 text-success" :
+                      c.status === "Warning" ? "bg-warning/10 text-warning" :
+                      c.status === "N/A"     ? "bg-surface text-text-secondary" :
+                      "bg-danger/10 text-danger"
+                    }`}>
+                      {c.status}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
 
-      {/* Top issues */}
-      {data.activity_issues.length > 0 && (
+      {/* Top risk activities */}
+      {d.top_risk_activities.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+            Top Risk Activities ({d.top_risk_activities.length > 5 ? "top 5 of " + d.top_risk_activities.length : d.top_risk_activities.length})
+          </p>
+          {d.top_risk_activities.slice(0, 5).map((act, i) => (
+            <div key={act.activity_id} className="flex items-start gap-2 bg-surface rounded p-2">
+              <span className="text-[10px] font-bold text-danger shrink-0 w-5 text-center mt-0.5">#{i + 1}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-medium text-text-primary truncate">{act.name}</p>
+                  <span className="text-[10px] text-danger font-bold shrink-0">{act.risk_contribution_pct.toFixed(1)}%</span>
+                </div>
+                <p className="text-[11px] text-text-secondary">
+                  {act.checks_failed.join(", ")} · {act.total_schedule_impact_days}d at risk
+                  {act.responsible_party ? ` · ${act.responsible_party}` : ""}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Top issues — first 5 from violation dataset sorted by risk */}
+      {d.violation_dataset.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
-            Top Issues ({data.activity_issues.length})
+            Highest-Risk Violations ({data.activity_issues.length} total)
           </p>
-          {data.activity_issues.slice(0, 5).map((iss, i) => (
+          {d.violation_dataset.slice(0, 5).map((iss, i) => (
             <div key={i} className="flex items-start gap-2 bg-surface rounded p-2">
               <AlertTriangle className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${iss.severity === "Critical" ? "text-danger" : "text-warning"}`} />
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-text-primary truncate">{iss.name}</p>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-1">
+                  <p className="text-xs font-medium text-text-primary truncate">{iss.name}</p>
+                  <span className="text-[10px] text-danger shrink-0">{iss.risk_contribution_pct.toFixed(1)}% risk</span>
+                </div>
                 <p className="text-[11px] text-text-secondary">{iss.description}</p>
               </div>
             </div>
