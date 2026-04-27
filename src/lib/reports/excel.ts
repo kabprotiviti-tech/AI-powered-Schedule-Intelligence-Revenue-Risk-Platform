@@ -1,0 +1,672 @@
+/**
+ * Excel Report Builder
+ *
+ * Produces a consulting-grade .xlsx workbook with six sheets:
+ *
+ *  1. Summary          — project metadata, overall scores, data source banner
+ *  2. DCMA Scorecard   — 14-check table, color-coded pass/warn/fail
+ *  3. Activity Issues  — full violation dataset with auto-filter (the main sheet)
+ *  4. CPM Float        — float records + distribution buckets
+ *  5. EVM Performance  — PV/EV/AC/BAC/EAC, indices, variance
+ *  6. Risk Register    — top risk activities cross-referenced across checks
+ *
+ * All cells carry:
+ *   - Exact value types (number vs string) for Excel formulas to work
+ *   - Print-ready column widths and row heights
+ *   - Conditional fills per severity row
+ *   - Freeze panes on row 1 (header) for every data sheet
+ */
+
+import ExcelJS from "exceljs";
+import type { DCMAOutput, DCMAViolationRecord } from "@/lib/engines/dcma/index";
+import type { CPMOutput }         from "@/lib/engines/cpm/index";
+import type { EVMOutput }         from "@/lib/engines/evm/index";
+import type { MonteCarloOutput }  from "@/lib/engines/monte-carlo/index";
+import type { OrchestratorResult } from "@/lib/engines/orchestrator";
+import type { ReportMeta, ExcelReportRequest } from "./types";
+import { XL_COLORS, SEVERITY_BG, SEVERITY_FG } from "./types";
+
+// ─── Style helpers ────────────────────────────────────────────────────────────
+
+type ArgbColor = { argb: string };
+
+function argb(hex: string): ArgbColor { return { argb: hex }; }
+
+const HEADER_FILL: ExcelJS.Fill = {
+  type: "pattern", pattern: "solid", fgColor: argb(XL_COLORS.navy),
+};
+const SUBHEADER_FILL: ExcelJS.Fill = {
+  type: "pattern", pattern: "solid", fgColor: argb(XL_COLORS.blue),
+};
+const ALT_FILL: ExcelJS.Fill = {
+  type: "pattern", pattern: "solid", fgColor: argb(XL_COLORS.alt_row),
+};
+
+function headerFont(size = 11): Partial<ExcelJS.Font> {
+  return { bold: true, color: argb(XL_COLORS.header_text), size, name: "Calibri" };
+}
+function bodyFont(size = 10): Partial<ExcelJS.Font> {
+  return { size, name: "Calibri", color: argb("FF1E293B") };
+}
+function thinBorder(): Partial<ExcelJS.Borders> {
+  const side = { style: "thin" as const, color: argb(XL_COLORS.border) };
+  return { top: side, bottom: side, left: side, right: side };
+}
+function mediumBorder(): Partial<ExcelJS.Borders> {
+  const side = { style: "medium" as const, color: argb(XL_COLORS.navy) };
+  return { top: side, bottom: side, left: side, right: side };
+}
+
+function styleHeaderRow(row: ExcelJS.Row, height = 22) {
+  row.height = height;
+  row.eachCell((cell) => {
+    cell.fill   = HEADER_FILL;
+    cell.font   = headerFont();
+    cell.border = thinBorder();
+    cell.alignment = { vertical: "middle", horizontal: "center", wrapText: false };
+  });
+}
+
+function applyDataRow(row: ExcelJS.Row, alt: boolean, severityFill?: string) {
+  row.height = 18;
+  row.eachCell({ includeEmpty: true }, (cell) => {
+    cell.font   = bodyFont();
+    cell.border = thinBorder();
+    cell.alignment = { vertical: "middle", wrapText: false };
+    if (severityFill) {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: argb(severityFill.replace("#","FF")) };
+    } else if (alt) {
+      cell.fill = ALT_FILL;
+    }
+  });
+}
+
+// ─── Sheet 1: Summary ─────────────────────────────────────────────────────────
+
+function buildSummarySheet(
+  wb: ExcelJS.Workbook,
+  meta: ReportMeta,
+  result: OrchestratorResult,
+) {
+  const ws = wb.addWorksheet("Summary", {
+    properties: { tabColor: { argb: XL_COLORS.navy } },
+    pageSetup:  { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+  });
+
+  ws.columns = [
+    { key: "a", width: 32 },
+    { key: "b", width: 28 },
+    { key: "c", width: 22 },
+    { key: "d", width: 22 },
+  ];
+
+  // ── Title banner ──────────────────────────────────────────────────────────
+  ws.mergeCells("A1:D1");
+  const titleCell = ws.getCell("A1");
+  titleCell.value = "NEXUS SRP — Schedule Intelligence Report";
+  titleCell.font  = { bold: true, size: 16, name: "Calibri", color: argb(XL_COLORS.header_text) };
+  titleCell.fill  = HEADER_FILL;
+  titleCell.alignment = { vertical: "middle", horizontal: "center" };
+  ws.getRow(1).height = 36;
+
+  ws.mergeCells("A2:D2");
+  const subtitleCell = ws.getCell("A2");
+  subtitleCell.value = meta.project_name;
+  subtitleCell.font  = { bold: true, size: 13, name: "Calibri", color: argb(XL_COLORS.header_text) };
+  subtitleCell.fill  = SUBHEADER_FILL;
+  subtitleCell.alignment = { vertical: "middle", horizontal: "center" };
+  ws.getRow(2).height = 26;
+
+  // ── Metadata block ────────────────────────────────────────────────────────
+  ws.addRow([]);
+  const metaRows: [string, string | number][] = [
+    ["Project ID",    meta.project_id],
+    ["Project Type",  meta.project_type],
+    ["Update / Cycle",meta.update_id],
+    ["Data Date",     meta.data_date],
+    ["Generated At",  meta.generated_at],
+    ["Generated By",  meta.generated_by],
+    ["Data Source",   meta.data_source],
+    ["Report Version",meta.version],
+  ];
+  metaRows.forEach(([label, value], i) => {
+    const row = ws.addRow([label, value]);
+    row.height = 18;
+    row.getCell(1).font   = { bold: true, size: 10, name: "Calibri", color: argb(XL_COLORS.navy) };
+    row.getCell(1).fill   = { type: "pattern", pattern: "solid", fgColor: argb(XL_COLORS.light_bg) };
+    row.getCell(2).font   = bodyFont();
+    row.getCell(2).fill   = i % 2 === 0 ? ALT_FILL : { type: "pattern", pattern: "solid", fgColor: argb("FFFFFFFF") };
+    [1, 2].forEach((c) => { row.getCell(c).border = thinBorder(); });
+  });
+
+  // ── Engine scores ─────────────────────────────────────────────────────────
+  ws.addRow([]);
+  const scoresHeader = ws.addRow(["Engine", "Score", "Status", "Key Metric"]);
+  styleHeaderRow(scoresHeader);
+
+  const engines: Array<{ id: string; label: string; keyMetric: (r: OrchestratorResult) => string }> = [
+    { id: "DCMA",        label: "DCMA 14-Point",  keyMetric: (r) => `${(r.results.DCMA as DCMAOutput)?.detail.total_violations ?? "—"} violations` },
+    { id: "CPM",         label: "Critical Path",  keyMetric: (r) => `${(r.results.CPM as CPMOutput)?.detail.finish_variance_days ?? "—"}d finish variance` },
+    { id: "EVM",         label: "Earned Value",   keyMetric: (r) => `SPI ${(r.results.EVM as EVMOutput)?.detail.spi?.toFixed(2) ?? "—"}` },
+    { id: "MONTE_CARLO", label: "Monte Carlo",    keyMetric: (r) => `${(r.results.MONTE_CARLO as MonteCarloOutput)?.detail.planned_finish_confidence?.toFixed(0) ?? "—"}% on-time` },
+    { id: "OVERALL",     label: "Overall",        keyMetric: () => `${result.summary.engines_run.length} engines` },
+  ];
+
+  engines.forEach(({ id, label, keyMetric }, i) => {
+    const score  = id === "OVERALL" ? result.summary.overall_score : result.results[id]?.summary.score;
+    const status = score == null ? "N/A" : score >= 75 ? "Good" : score >= 50 ? "Warning" : "Poor";
+    const row    = ws.addRow([label, score ?? "—", status, keyMetric(result)]);
+    applyDataRow(row, i % 2 === 1);
+
+    // Score cell coloring
+    if (score != null) {
+      const scoreCell = row.getCell(2);
+      const statusCell = row.getCell(3);
+      const fg = score >= 75 ? XL_COLORS.success : score >= 50 ? XL_COLORS.warning : XL_COLORS.danger;
+      scoreCell.font  = { bold: true, size: 12, name: "Calibri", color: argb(fg) };
+      statusCell.font = { bold: true, size: 10, name: "Calibri", color: argb(fg) };
+    }
+  });
+
+  // ── Overall score callout ─────────────────────────────────────────────────
+  ws.addRow([]);
+  ws.mergeCells(`A${ws.rowCount + 1}:D${ws.rowCount + 1}`);
+  const overallRow = ws.lastRow!;
+  const os = result.summary.overall_score;
+  overallRow.getCell(1).value = `Overall Health Score: ${os} / 100 — ${os >= 75 ? "Good" : os >= 50 ? "Warning" : "Poor"}`;
+  overallRow.getCell(1).font  = { bold: true, size: 14, name: "Calibri", color: argb(os >= 75 ? XL_COLORS.success : os >= 50 ? XL_COLORS.warning : XL_COLORS.danger) };
+  overallRow.getCell(1).fill  = { type: "pattern", pattern: "solid", fgColor: argb(XL_COLORS.light_bg) };
+  overallRow.getCell(1).border = mediumBorder();
+  overallRow.getCell(1).alignment = { vertical: "middle", horizontal: "center" };
+  overallRow.height = 30;
+}
+
+// ─── Sheet 2: DCMA Scorecard ──────────────────────────────────────────────────
+
+function buildDCMASheet(wb: ExcelJS.Workbook, dcma: DCMAOutput) {
+  const ws = wb.addWorksheet("DCMA Scorecard", {
+    properties: { tabColor: { argb: XL_COLORS.blue } },
+  });
+
+  ws.columns = [
+    { header: "Check Code",       key: "check_code",       width: 14 },
+    { header: "Check Name",       key: "check_name",       width: 36 },
+    { header: "Status",           key: "status",           width: 12 },
+    { header: "Severity Weight",  key: "severity_weight",  width: 14 },
+    { header: "Total Activities", key: "total_activities", width: 16 },
+    { header: "Violations",       key: "failed_count",     width: 12 },
+    { header: "Pass Rate %",      key: "pass_rate_pct",    width: 12 },
+    { header: "Risk Contribution %", key: "risk_pct",      width: 18 },
+    { header: "Sched. Impact (d)", key: "schedule_impact", width: 18 },
+    { header: "Description",      key: "description",      width: 60 },
+  ];
+
+  styleHeaderRow(ws.getRow(1));
+  ws.views = [{ state: "frozen", ySplit: 1 }];
+
+  const d = dcma.detail;
+  d.check_results.forEach((c, i) => {
+    const vbc = d.violations_by_check[c.check_code];
+    const row = ws.addRow({
+      check_code:       c.check_code,
+      check_name:       c.check_name,
+      status:           c.status,
+      severity_weight:  c.severity_weight,
+      total_activities: d.task_count,
+      failed_count:     c.status === "N/A" ? null : c.failed_count,
+      pass_rate_pct:    c.status === "N/A" ? null : parseFloat(c.pass_rate_pct.toFixed(1)),
+      risk_pct:         vbc ? parseFloat(vbc.subtotal_risk_pct.toFixed(1)) : null,
+      schedule_impact:  vbc ? vbc.subtotal_schedule_impact_days : null,
+      description:      c.description ?? "",
+    });
+
+    // Color entire row by status
+    const fillArgb =
+      c.status === "Pass"    ? "FFF0FDF4" :
+      c.status === "Warning" ? "FFFFF7ED" :
+      c.status === "Fail"    ? "FFFEF2F2" :
+      XL_COLORS.light_bg;
+
+    applyDataRow(row, i % 2 === 1);
+    row.eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: argb(fillArgb) };
+    });
+
+    // Status cell bold color
+    const statusCell = row.getCell("status");
+    statusCell.font = {
+      bold: true, size: 10, name: "Calibri",
+      color: argb(c.status === "Pass" ? XL_COLORS.success : c.status === "Warning" ? XL_COLORS.warning : c.status === "Fail" ? XL_COLORS.danger : XL_COLORS.muted),
+    };
+
+    // Number formats
+    row.getCell("pass_rate_pct").numFmt   = "0.0%";
+    row.getCell("risk_pct").numFmt        = "0.0";
+    row.getCell("schedule_impact").numFmt = "0";
+  });
+
+  // Summary row
+  ws.addRow([]);
+  const totalFailed = d.check_results.reduce((s, c) => s + (c.status === "N/A" ? 0 : c.failed_count), 0);
+  const sumRow = ws.addRow({
+    check_code:   "TOTAL",
+    check_name:   "All 14 Checks",
+    status:       `${d.check_results.filter((c) => c.status === "Pass").length} Pass / ${d.check_results.filter((c) => c.status === "Fail").length} Fail`,
+    failed_count: totalFailed,
+    risk_pct:     100,
+  });
+  sumRow.height = 20;
+  sumRow.eachCell((cell) => {
+    cell.fill   = SUBHEADER_FILL;
+    cell.font   = headerFont();
+    cell.border = mediumBorder();
+    cell.alignment = { vertical: "middle", horizontal: "center" };
+  });
+}
+
+// ─── Sheet 3: Activity Issues ─────────────────────────────────────────────────
+
+function buildViolationsSheet(
+  wb: ExcelJS.Workbook,
+  dcma: DCMAOutput,
+  filters: ExcelReportRequest["filters"],
+) {
+  const ws = wb.addWorksheet("Activity Issues", {
+    properties: { tabColor: { argb: XL_COLORS.danger } },
+  });
+
+  ws.columns = [
+    { header: "Risk Rank",        key: "risk_rank",        width: 10 },
+    { header: "Activity ID",      key: "activity_id",      width: 14 },
+    { header: "External ID",      key: "external_id",      width: 14 },
+    { header: "Activity Name",    key: "name",             width: 42 },
+    { header: "WBS Code",         key: "wbs_code",         width: 14 },
+    { header: "Framework",        key: "check_code",       width: 12 },
+    { header: "Check Name",       key: "check_name",       width: 32 },
+    { header: "Issue Type",       key: "issue_type",       width: 28 },
+    { header: "Severity",         key: "severity",         width: 12 },
+    { header: "Impact (days)",    key: "impact",           width: 14 },
+    { header: "Risk Contribution %", key: "risk_contribution_pct", width: 18 },
+    { header: "Responsible Party",key: "responsible_party",width: 28 },
+    { header: "Description",      key: "description",      width: 58 },
+    { header: "Recommended Action", key: "recommended_action", width: 58 },
+    { header: "Baseline Start",   key: "baseline_start",   width: 16 },
+    { header: "Baseline Finish",  key: "baseline_finish",  width: 16 },
+    { header: "Total Float (d)",  key: "total_float",      width: 14 },
+  ];
+
+  styleHeaderRow(ws.getRow(1));
+  ws.views = [{ state: "frozen", ySplit: 1 }];
+  ws.autoFilter = { from: "A1", to: "Q1" };
+
+  // Apply filters
+  let violations: DCMAViolationRecord[] = [...dcma.detail.violation_dataset];
+  if (filters?.severity?.length)  violations = violations.filter((v) => filters.severity!.includes(v.severity));
+  if (filters?.check_code)        violations = violations.filter((v) => v.check_code === filters.check_code);
+  if (filters?.wbs_prefix)        violations = violations.filter((v) => v.wbs_code.split(".")[0] === filters.wbs_prefix);
+  if (filters?.responsible)       violations = violations.filter((v) => (v.evidence?.responsible_party as string | undefined) === filters.responsible);
+
+  violations.forEach((v, i) => {
+    const ev  = v.evidence as Record<string, unknown>;
+    const row = ws.addRow({
+      risk_rank:             v.risk_rank,
+      activity_id:           v.activity_id,
+      external_id:           v.external_id,
+      name:                  v.name,
+      wbs_code:              v.wbs_code,
+      check_code:            v.check_code,
+      check_name:            v.check_name,
+      issue_type:            v.issue_type,
+      severity:              v.severity,
+      impact:                v.impact,
+      risk_contribution_pct: parseFloat(v.risk_contribution_pct.toFixed(2)),
+      responsible_party:     (ev?.responsible_party as string) ?? "",
+      description:           v.description,
+      recommended_action:    v.recommended_action ?? "",
+      baseline_start:        (ev?.baseline_start as string) ?? "",
+      baseline_finish:       (ev?.baseline_finish as string) ?? "",
+      total_float:           typeof ev?.total_float === "number" ? ev.total_float : null,
+    });
+
+    const bgHex = SEVERITY_BG[v.severity] ?? XL_COLORS.light_bg;
+    const fgHex = SEVERITY_FG[v.severity] ?? XL_COLORS.muted;
+    applyDataRow(row, i % 2 === 1, bgHex);
+
+    // Severity cell — bold, colored text
+    const sevCell = row.getCell("severity");
+    sevCell.font = { bold: true, size: 10, name: "Calibri", color: argb(fgHex.replace("#", "FF")) };
+
+    // Risk rank — large and bold
+    const rankCell = row.getCell("risk_rank");
+    rankCell.font = { bold: true, size: 11, name: "Calibri", color: argb(XL_COLORS.navy) };
+    rankCell.alignment = { horizontal: "center", vertical: "middle" };
+
+    row.getCell("risk_contribution_pct").numFmt = "0.00";
+    row.getCell("impact").numFmt               = "0";
+    row.getCell("total_float").numFmt          = "0";
+  });
+
+  // Stats footer
+  ws.addRow([]);
+  const sev = dcma.detail.violations_by_severity;
+  const footerRow = ws.addRow([
+    `Total: ${violations.length} violations shown`,
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    `Critical: ${sev.Critical.length}  High: ${sev.High.length}  Medium: ${sev.Medium.length}  Low: ${sev.Low.length}`,
+  ]);
+  footerRow.height = 18;
+  footerRow.getCell(1).font = { bold: true, size: 10, name: "Calibri", color: argb(XL_COLORS.navy) };
+  footerRow.getCell(9).font = { bold: true, size: 10, name: "Calibri", color: argb(XL_COLORS.muted) };
+}
+
+// ─── Sheet 4: CPM Float ───────────────────────────────────────────────────────
+
+function buildCPMSheet(wb: ExcelJS.Workbook, cpm: CPMOutput) {
+  const ws = wb.addWorksheet("CPM Float", {
+    properties: { tabColor: { argb: "FFFB923C" } },
+  });
+
+  const d = cpm.detail;
+
+  // Summary KPIs
+  ws.columns = [{ key: "a", width: 30 }, { key: "b", width: 20 }, { key: "c", width: 30 }, { key: "d", width: 20 }];
+
+  ws.mergeCells("A1:D1");
+  const h = ws.getCell("A1");
+  h.value = "CPM — Critical Path Analysis";
+  h.font  = { bold: true, size: 14, name: "Calibri", color: argb(XL_COLORS.header_text) };
+  h.fill  = HEADER_FILL;
+  h.alignment = { vertical: "middle", horizontal: "center" };
+  ws.getRow(1).height = 28;
+
+  ws.addRow([]);
+  const kpiHeader = ws.addRow(["Metric", "Value", "Metric", "Value"]);
+  styleHeaderRow(kpiHeader);
+
+  const kpis: [string, string | number, string, string | number][] = [
+    ["Critical Activities",  d.critical_path.length,                    "Near-Critical Activities", d.near_critical_count],
+    ["Negative Float Count", d.negative_float_count,                   "CPLI",                     parseFloat(d.cpli.toFixed(3))],
+    ["Critical Path Duration (d)", d.critical_path_duration,           "Finish Variance (d)",      d.finish_variance_days],
+    ["Total Float Records",  d.float_records.length,                   "Activities w/ Zero Float", d.float_records.filter((r) => r.total_float === 0).length],
+  ];
+  kpis.forEach(([la, va, lb, vb], i) => {
+    const row = ws.addRow([la, va, lb, vb]);
+    applyDataRow(row, i % 2 === 1);
+    [1, 3].forEach((c) => { row.getCell(c).font = { bold: true, size: 10, name: "Calibri", color: argb(XL_COLORS.navy) }; });
+  });
+
+  // Float records table
+  ws.addRow([]);
+  ws.addRow([]);
+  ws.mergeCells(`A${ws.rowCount}:D${ws.rowCount}`);
+  const ftHeader = ws.lastRow!;
+  ftHeader.getCell(1).value = "Float Records (sorted by total_float asc)";
+  ftHeader.getCell(1).font  = headerFont(11);
+  ftHeader.getCell(1).fill  = SUBHEADER_FILL;
+  ftHeader.getCell(1).alignment = { vertical: "middle", horizontal: "center" };
+  ftHeader.height = 22;
+
+  ws.addRow([]);
+  // Expand columns for the table
+  ws.columns = [
+    { key: "activity_id",   width: 16 },
+    { key: "name",          width: 40 },
+    { key: "total_float",   width: 14 },
+    { key: "free_float",    width: 14 },
+    { key: "is_critical",   width: 12 },
+    { key: "wbs_code",      width: 14 },
+    { key: "responsible",   width: 28 },
+  ];
+
+  const colHeaders = ["Activity ID","Name","Total Float (d)","Free Float (d)","Critical?","WBS Code","Responsible"];
+  const colRow = ws.addRow(colHeaders);
+  styleHeaderRow(colRow);
+  ws.views = [{ state: "frozen", ySplit: colRow.number }];
+  ws.autoFilter = { from: { row: colRow.number, column: 1 }, to: { row: colRow.number, column: 7 } };
+
+  [...d.float_records]
+    .sort((a, b) => a.total_float - b.total_float)
+    .forEach((r, i) => {
+      const ev  = r as unknown as Record<string, unknown>;
+      const row = ws.addRow([
+        r.activity_id,
+        (ev.name as string) ?? "",
+        r.total_float,
+        r.free_float,
+        r.is_critical ? "Yes" : "No",
+        (ev.wbs_code as string) ?? "",
+        (ev.responsible_party as string) ?? "",
+      ]);
+      applyDataRow(row, i % 2 === 1);
+
+      // Color negative float red
+      if (r.total_float < 0) {
+        row.getCell(3).font = { bold: true, size: 10, name: "Calibri", color: argb(XL_COLORS.danger) };
+        row.getCell(5).font = { bold: true, size: 10, name: "Calibri", color: argb(XL_COLORS.danger) };
+      } else if (r.is_critical) {
+        row.getCell(5).font = { bold: true, size: 10, name: "Calibri", color: argb(XL_COLORS.warning) };
+      }
+    });
+}
+
+// ─── Sheet 5: EVM Performance ─────────────────────────────────────────────────
+
+function buildEVMSheet(wb: ExcelJS.Workbook, evm: EVMOutput) {
+  const ws = wb.addWorksheet("EVM Performance", {
+    properties: { tabColor: { argb: XL_COLORS.success } },
+  });
+
+  const d = evm.detail;
+
+  ws.columns = [{ key: "a", width: 34 }, { key: "b", width: 24 }, { key: "c", width: 20 }];
+
+  ws.mergeCells("A1:C1");
+  const h = ws.getCell("A1");
+  h.value = "EVM — Earned Value Management Performance";
+  h.font  = { bold: true, size: 14, name: "Calibri", color: argb(XL_COLORS.header_text) };
+  h.fill  = HEADER_FILL;
+  h.alignment = { vertical: "middle", horizontal: "center" };
+  ws.getRow(1).height = 28;
+
+  ws.addRow([]);
+  const metricHeader = ws.addRow(["Metric", "Value", "Health"]);
+  styleHeaderRow(metricHeader);
+
+  const fmt = (n: number) => n.toLocaleString("en-AE", { style: "currency", currency: "AED", maximumFractionDigits: 0 });
+  const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+  const flag = (v: number, lo: number, hi: number, invert = false) => {
+    const bad = invert ? v > hi : v < lo;
+    const ok  = invert ? v <= lo : v >= hi;
+    return bad ? "⚠ Poor" : ok ? "✓ Good" : "~ Watch";
+  };
+
+  const metrics: [string, string, string][] = [
+    ["Planned Value (PV)",          fmt(d.pv),                 "—"],
+    ["Earned Value (EV)",           fmt(d.ev),                 "—"],
+    ["Actual Cost (AC)",            fmt(d.ac),                 "—"],
+    ["Budget at Completion (BAC)",  fmt(d.bac),                "—"],
+    ["Estimate at Completion (EAC)",fmt(d.eac),                d.eac > d.bac ? "⚠ Over Budget" : "✓ Within Budget"],
+    ["Variance at Completion (VAC)",fmt(d.vac),                d.vac < 0 ? "⚠ Negative" : "✓ Positive"],
+    ["Schedule Performance Index (SPI)", d.spi.toFixed(3),    flag(d.spi, 0.95, 1.05)],
+    ["Cost Performance Index (CPI)",     d.cpi.toFixed(3),    flag(d.cpi, 0.95, 1.05)],
+    ["TCPI (Cost to Complete Index)",    d.tcpi.toFixed(3),   flag(d.tcpi, 0, 1.1, true)],
+    ["IEAC(t) — Estimated Duration (d)", d.ieac_t.toFixed(0), "—"],
+    ["Schedule Overrun (d)",             d.schedule_overrun_days.toString(), d.schedule_overrun_days > 0 ? "⚠ Delayed" : "✓ On Track"],
+    ["Percent Complete (%)",             pct(d.percent_complete / 100), "—"],
+  ];
+
+  metrics.forEach(([label, value, health], i) => {
+    const row = ws.addRow([label, value, health]);
+    applyDataRow(row, i % 2 === 1);
+    row.getCell(1).font = { bold: true, size: 10, name: "Calibri", color: argb(XL_COLORS.navy) };
+
+    const hcell = row.getCell(3);
+    if (health.startsWith("⚠")) hcell.font = { bold: true, size: 10, name: "Calibri", color: argb(XL_COLORS.danger) };
+    else if (health.startsWith("✓")) hcell.font = { bold: true, size: 10, name: "Calibri", color: argb(XL_COLORS.success) };
+  });
+}
+
+// ─── Sheet 6: Risk Register ───────────────────────────────────────────────────
+
+function buildRiskSheet(wb: ExcelJS.Workbook, dcma: DCMAOutput, mc?: MonteCarloOutput) {
+  const ws = wb.addWorksheet("Risk Register", {
+    properties: { tabColor: { argb: XL_COLORS.danger } },
+  });
+
+  ws.columns = [
+    { header: "Rank",               key: "rank",           width: 8  },
+    { header: "Activity ID",        key: "activity_id",    width: 14 },
+    { header: "Activity Name",      key: "name",           width: 42 },
+    { header: "Checks Failed",      key: "checks_failed",  width: 28 },
+    { header: "Violations Count",   key: "violations",     width: 16 },
+    { header: "Risk Contribution %",key: "risk_pct",       width: 18 },
+    { header: "Sched. Impact (d)",  key: "impact",         width: 16 },
+    { header: "Responsible Party",  key: "responsible",    width: 28 },
+    { header: "MC Sensitivity",     key: "sensitivity",    width: 16 },
+  ];
+
+  styleHeaderRow(ws.getRow(1));
+  ws.views = [{ state: "frozen", ySplit: 1 }];
+
+  const d   = dcma.detail;
+  const top = d.top_risk_activities;
+
+  // Build MC sensitivity lookup
+  const mcSensitivity: Record<string, number> = {};
+  if (mc) {
+    mc.detail.tornado.forEach((t) => { mcSensitivity[t.activity_id] = t.sensitivity; });
+  }
+
+  top.forEach((act, i) => {
+    const row = ws.addRow({
+      rank:        i + 1,
+      activity_id: act.activity_id,
+      name:        act.name,
+      checks_failed: act.checks_failed.join(", "),
+      violations:  act.checks_failed.length,
+      risk_pct:    parseFloat(act.risk_contribution_pct.toFixed(2)),
+      impact:      act.total_schedule_impact_days,
+      responsible: act.responsible_party ?? "",
+      sensitivity: mcSensitivity[act.activity_id] != null
+        ? parseFloat(mcSensitivity[act.activity_id].toFixed(3))
+        : null,
+    });
+
+    applyDataRow(row, i % 2 === 1);
+
+    // Top 3 get red highlights
+    if (i < 3) {
+      row.eachCell((cell) => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: argb("FFFEF2F2") };
+      });
+      row.getCell("rank").font = { bold: true, size: 12, name: "Calibri", color: argb(XL_COLORS.danger) };
+    }
+
+    row.getCell("risk_pct").numFmt   = "0.00";
+    row.getCell("impact").numFmt    = "0";
+    row.getCell("sensitivity").numFmt = "0.000";
+  });
+}
+
+// ─── Sheet 7: Monte Carlo ─────────────────────────────────────────────────────
+
+function buildMCSheet(wb: ExcelJS.Workbook, mc: MonteCarloOutput) {
+  const ws = wb.addWorksheet("Monte Carlo", {
+    properties: { tabColor: { argb: "FFA855F7" } },
+  });
+
+  const d = mc.detail;
+
+  ws.columns = [{ key: "a", width: 30 }, { key: "b", width: 20 }, { key: "c", width: 20 }, { key: "d", width: 20 }];
+
+  ws.mergeCells("A1:D1");
+  const h = ws.getCell("A1");
+  h.value = "Monte Carlo — Schedule Risk Simulation";
+  h.font  = { bold: true, size: 14, name: "Calibri", color: argb(XL_COLORS.header_text) };
+  h.fill  = HEADER_FILL;
+  h.alignment = { vertical: "middle", horizontal: "center" };
+  ws.getRow(1).height = 28;
+
+  ws.addRow([]);
+  ws.addRow(["Iterations",      d.iterations,                     "On-Time Probability", `${d.planned_finish_confidence.toFixed(1)}%`]);
+  ws.addRow(["Mean Duration (d)",  d.mean_days.toFixed(0),        "Std Dev (d)",          d.std_dev_days?.toFixed(1) ?? "—"]);
+  ws.addRow(["Min Duration (d)",   d.min_days?.toFixed(0) ?? "—", "Max Duration (d)",     d.max_days?.toFixed(0) ?? "—"]);
+  [3, 4, 5].forEach((n, i) => {
+    const row = ws.getRow(n);
+    applyDataRow(row, i % 2 === 1);
+    [1, 3].forEach((c) => { row.getCell(c).font = { bold: true, size: 10, name: "Calibri", color: argb(XL_COLORS.navy) }; });
+  });
+
+  // Confidence dates table
+  ws.addRow([]);
+  const confHeader = ws.addRow(["Confidence Level", "Duration (days)", "Exceedance Date", "Description"]);
+  styleHeaderRow(confHeader);
+
+  d.confidence_dates.forEach((c, i) => {
+    const row = ws.addRow([c.label, c.days, c.date ?? "", c.description ?? ""]);
+    applyDataRow(row, i % 2 === 1);
+
+    if (c.label === "P50") row.getCell(1).font = { bold: true, size: 10, name: "Calibri", color: argb(XL_COLORS.success) };
+    if (c.label === "P80") row.getCell(1).font = { bold: true, size: 10, name: "Calibri", color: argb(XL_COLORS.warning) };
+    if (c.label === "P90" || c.label === "P95") row.getCell(1).font = { bold: true, size: 10, name: "Calibri", color: argb(XL_COLORS.danger) };
+  });
+
+  // Tornado top 10
+  ws.addRow([]);
+  const tornadoHeader = ws.addRow(["Activity ID", "Activity Name", "Spearman Correlation", "Range (days)"]);
+  styleHeaderRow(tornadoHeader);
+  ws.autoFilter = {
+    from: { row: tornadoHeader.number, column: 1 },
+    to:   { row: tornadoHeader.number, column: 4 },
+  };
+
+  d.tornado.slice(0, 20).forEach((t, i) => {
+    const row = ws.addRow([t.activity_id, t.name ?? "", t.sensitivity, t.range_days]);
+    applyDataRow(row, i % 2 === 1);
+    row.getCell(3).numFmt = "0.000";
+    if (Math.abs(t.sensitivity) > 0.5) {
+      row.getCell(3).font = { bold: true, size: 10, name: "Calibri", color: argb(XL_COLORS.danger) };
+    }
+  });
+}
+
+// ─── Public builder ───────────────────────────────────────────────────────────
+
+export async function buildExcelReport(
+  meta:    ReportMeta,
+  result:  OrchestratorResult,
+  request: ExcelReportRequest,
+): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator    = "NEXUS SRP";
+  wb.lastModifiedBy = "NEXUS SRP Engine";
+  wb.created    = new Date(meta.generated_at);
+  wb.modified   = new Date(meta.generated_at);
+
+  const dcma = result.results.DCMA as DCMAOutput | undefined;
+  const cpm  = result.results.CPM  as CPMOutput  | undefined;
+  const evm  = result.results.EVM  as EVMOutput  | undefined;
+  const mc   = result.results.MONTE_CARLO as MonteCarloOutput | undefined;
+
+  const sections = request.sections ?? [
+    "executive_summary", "dcma_scorecard", "activity_issues",
+    "cpm_float", "evm_performance", "monte_carlo",
+  ];
+
+  buildSummarySheet(wb, meta, result);
+  if (sections.includes("dcma_scorecard")  && dcma) buildDCMASheet(wb, dcma);
+  if (sections.includes("activity_issues") && dcma) buildViolationsSheet(wb, dcma, request.filters);
+  if (sections.includes("cpm_float")       && cpm)  buildCPMSheet(wb, cpm);
+  if (sections.includes("evm_performance") && evm)  buildEVMSheet(wb, evm);
+  if (sections.includes("monte_carlo")     && mc)   buildMCSheet(wb, mc);
+  if (dcma) buildRiskSheet(wb, dcma, mc);
+
+  const arrayBuffer = await wb.xlsx.writeBuffer();
+  return Buffer.from(arrayBuffer);
+}

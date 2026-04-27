@@ -21,6 +21,7 @@ import {
   ChevronRight, ChevronDown, ChevronUp, Search, X, Filter,
   AlertTriangle, CheckCircle2, XCircle, RefreshCw, Download,
   ArrowUpDown, ArrowUp, ArrowDown, Layers, Info,
+  FileSpreadsheet, FileText,
 } from "lucide-react";
 import { PROJECTS } from "@/lib/data/mock";
 import type { DCMAViolationRecord } from "@/lib/engines/dcma/index";
@@ -242,6 +243,74 @@ function ExpandedRow({
   );
 }
 
+// ─── Drill-down export menu ───────────────────────────────────────────────────
+
+function DrillDownExportMenu({ projectId }: { projectId: string }) {
+  const [open,     setOpen]     = useState(false);
+  const [xlState,  setXlState]  = useState<"idle"|"loading"|"error">("idle");
+  const [pdfState, setPdfState] = useState<"idle"|"loading"|"error">("idle");
+
+  async function download(endpoint: string, filename: string, setter: (s: "idle"|"loading"|"error") => void) {
+    setter("loading");
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: projectId }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
+      Object.assign(document.createElement("a"), { href, download: filename }).click();
+      URL.revokeObjectURL(href);
+      setter("idle");
+    } catch {
+      setter("error");
+      setTimeout(() => setter("idle"), 3000);
+    }
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-surface border border-border rounded-lg hover:border-primary hover:text-primary transition-colors"
+      >
+        <Download className="w-3.5 h-3.5" /> Report
+        <ChevronRight className={`w-3 h-3 transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 z-20 w-48 rounded-xl border border-border bg-card shadow-lg overflow-hidden text-xs">
+            <button
+              onClick={() => { setOpen(false); download("/api/reports/excel", `${projectId}_NEXUS.xlsx`, setXlState); }}
+              disabled={xlState === "loading"}
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-text-primary hover:bg-surface transition-colors disabled:opacity-60"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-success shrink-0" />
+              <span className="flex-1 text-left">Excel Workbook</span>
+              {xlState === "loading" && <RefreshCw className="w-3 h-3 animate-spin text-text-secondary" />}
+              {xlState === "error"   && <AlertTriangle className="w-3 h-3 text-danger" />}
+            </button>
+            <div className="border-t border-border/50" />
+            <button
+              onClick={() => { setOpen(false); download("/api/reports/pdf", `${projectId}_NEXUS.pdf`, setPdfState); }}
+              disabled={pdfState === "loading"}
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-text-primary hover:bg-surface transition-colors disabled:opacity-60"
+            >
+              <FileText className="w-3.5 h-3.5 text-danger shrink-0" />
+              <span className="flex-1 text-left">PDF Report</span>
+              {pdfState === "loading" && <RefreshCw className="w-3 h-3 animate-spin text-text-secondary" />}
+              {pdfState === "error"   && <AlertTriangle className="w-3 h-3 text-danger" />}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function DrillDownPage() {
@@ -437,8 +506,9 @@ export default function DrillDownPage() {
             disabled={!filtered.length}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-surface border border-border rounded-lg hover:border-primary hover:text-primary transition-colors disabled:opacity-40"
           >
-            <Download className="w-3.5 h-3.5" /> Export CSV
+            <Download className="w-3.5 h-3.5" /> CSV
           </button>
+          <DrillDownExportMenu projectId={params.id} />
           <button
             onClick={load}
             disabled={loading}

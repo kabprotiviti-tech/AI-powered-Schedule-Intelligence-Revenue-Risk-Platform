@@ -9,7 +9,7 @@ import {
 } from "recharts";
 import {
   ChevronRight, RefreshCw, AlertTriangle, CheckCircle2, XCircle,
-  Zap, TrendingUp, Activity, Cpu, Info,
+  Zap, TrendingUp, Activity, Cpu, Info, Download, FileSpreadsheet, FileText,
 } from "lucide-react";
 import type { OrchestratorResult } from "@/lib/engines/orchestrator";
 import type { DCMAOutput } from "@/lib/engines/dcma/index";
@@ -37,6 +37,109 @@ function fmt2(n: number | null | undefined) {
 }
 function fmtInt(n: number | null | undefined) {
   return n == null ? "—" : Math.round(n).toLocaleString();
+}
+
+// ─── Export menu ─────────────────────────────────────────────────────────────
+
+type ExportState = "idle" | "loading" | "error";
+
+function useExport(projectId: string) {
+  const [xlState,  setXlState]  = useState<ExportState>("idle");
+  const [pdfState, setPdfState] = useState<ExportState>("idle");
+
+  async function triggerDownload(url: string, body: object, filename: string, setter: (s: ExportState) => void) {
+    setter("loading");
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = href;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(href);
+      setter("idle");
+    } catch {
+      setter("error");
+      setTimeout(() => setter("idle"), 3000);
+    }
+  }
+
+  const exportExcel = () => triggerDownload(
+    "/api/reports/excel",
+    { project_id: projectId },
+    `${projectId}_NEXUS_Report.xlsx`,
+    setXlState,
+  );
+
+  const exportPDF = () => triggerDownload(
+    "/api/reports/pdf",
+    { project_id: projectId, branding: { company_name: "NEXUS SRP", footer_text: "Confidential" } },
+    `${projectId}_NEXUS_Report.pdf`,
+    setPdfState,
+  );
+
+  return { xlState, pdfState, exportExcel, exportPDF };
+}
+
+function ExportMenu({ projectId }: { projectId: string }) {
+  const { xlState, pdfState, exportExcel, exportPDF } = useExport(projectId);
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 px-4 py-2 bg-surface hover:bg-surface/80 text-text-primary border border-border rounded-lg text-sm font-medium transition-colors"
+      >
+        <Download className="w-4 h-4" />
+        Export
+        <ChevronRight className={`w-3 h-3 transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 z-20 w-52 rounded-xl border border-border bg-card shadow-lg overflow-hidden">
+            <button
+              onClick={() => { setOpen(false); exportExcel(); }}
+              disabled={xlState === "loading"}
+              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-text-primary hover:bg-surface transition-colors disabled:opacity-60"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-success shrink-0" />
+              <div className="text-left">
+                <div className="font-medium">Export to Excel</div>
+                <div className="text-xs text-text-secondary">6 sheets · all engine data</div>
+              </div>
+              {xlState === "loading" && <RefreshCw className="w-3.5 h-3.5 ml-auto animate-spin text-text-secondary" />}
+              {xlState === "error"   && <AlertTriangle className="w-3.5 h-3.5 ml-auto text-danger" />}
+            </button>
+
+            <div className="border-t border-border/50" />
+
+            <button
+              onClick={() => { setOpen(false); exportPDF(); }}
+              disabled={pdfState === "loading"}
+              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-text-primary hover:bg-surface transition-colors disabled:opacity-60"
+            >
+              <FileText className="w-4 h-4 text-danger shrink-0" />
+              <div className="text-left">
+                <div className="font-medium">Export to PDF</div>
+                <div className="text-xs text-text-secondary">Executive · A4 · consulting-grade</div>
+              </div>
+              {pdfState === "loading" && <RefreshCw className="w-3.5 h-3.5 ml-auto animate-spin text-text-secondary" />}
+              {pdfState === "error"   && <AlertTriangle className="w-3.5 h-3.5 ml-auto text-danger" />}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 // ─── Score Ring ──────────────────────────────────────────────────────────────
@@ -591,14 +694,17 @@ export default function AnalysisPage() {
           <h1 className="text-xl font-bold text-text-primary">Schedule Intelligence Analysis</h1>
           <p className="text-sm text-text-secondary mt-0.5">{project.name} · {project.type}</p>
         </div>
-        <button
-          onClick={run}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-          {loading ? "Running…" : "Re-run Engines"}
-        </button>
+        <div className="flex items-center gap-2">
+          {result && <ExportMenu projectId={params.id} />}
+          <button
+            onClick={run}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            {loading ? "Running…" : "Re-run Engines"}
+          </button>
+        </div>
       </div>
 
       {/* Overall scores row */}
