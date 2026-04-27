@@ -7,7 +7,7 @@ import { HealthGauge } from "@/components/ui/HealthGauge";
 import { SPITrendChart } from "@/components/project/SPITrendChart";
 import { MilestoneTracker } from "@/components/project/MilestoneTracker";
 import Link from "next/link";
-import { ChevronRight, ArrowRight, Layers } from "lucide-react";
+import { ChevronRight, ArrowRight, Layers, Cpu } from "lucide-react";
 
 interface Props {
   params: { id: string };
@@ -52,14 +52,23 @@ export default function ProjectDetailPage({ params }: Props) {
             <span>Contractor: <span className="text-text-primary">{project.contractor}</span></span>
           </div>
         </div>
-        <Link
-          href={`/projects/${project.id}/activities`}
-          className="flex items-center gap-2 text-xs bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-dim transition-colors font-medium"
-        >
-          <Layers size={13} />
-          Activity Drill-down
-          <ArrowRight size={13} />
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/projects/${project.id}/analysis`}
+            className="flex items-center gap-2 text-xs bg-surface border border-border text-text-primary px-4 py-2 rounded-lg hover:border-primary hover:text-primary transition-colors font-medium"
+          >
+            <Cpu size={13} />
+            Engine Analysis
+          </Link>
+          <Link
+            href={`/projects/${project.id}/activities`}
+            className="flex items-center gap-2 text-xs bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-dim transition-colors font-medium"
+          >
+            <Layers size={13} />
+            Activity Drill-down
+            <ArrowRight size={13} />
+          </Link>
+        </div>
       </div>
 
       {/* KPI row */}
