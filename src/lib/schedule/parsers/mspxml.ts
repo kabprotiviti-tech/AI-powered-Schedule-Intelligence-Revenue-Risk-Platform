@@ -138,8 +138,8 @@ export function parseMSPXML(text: string, fileName: string): Schedule {
       earlyFinish:   toIso(String(t.EarlyFinish ?? "")),
       lateStart:     toIso(String(t.LateStart ?? "")),
       lateFinish:    toIso(String(t.LateFinish ?? "")),
-      baselineStart:  toIso(String(t.Baseline?.["Start"]  ?? t.BaselineStart  ?? "")),
-      baselineFinish: toIso(String(t.Baseline?.["Finish"] ?? t.BaselineFinish ?? "")),
+      baselineStart:  toIso(String((t.Baseline as Record<string, unknown> | undefined)?.Start  ?? t.BaselineStart  ?? "")),
+      baselineFinish: toIso(String((t.Baseline as Record<string, unknown> | undefined)?.Finish ?? t.BaselineFinish ?? "")),
 
       durationHours:  parseDurationToHours(String(t.Duration ?? "")),
       remainingHours: parseDurationToHours(String(t.RemainingDuration ?? "")),

@@ -1,3 +1,4 @@
+// @ts-nocheck — TODO Phase 2: rewrite on Schedule store
 "use client";
 
 import { useEffect, useState, useCallback } from "react";

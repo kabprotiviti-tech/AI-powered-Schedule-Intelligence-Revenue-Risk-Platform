@@ -1,29 +1,27 @@
 // IndexedDB persistence for parsed schedules.
 // Schemas can be 50–500 MB; localStorage cannot hold them.
-import { openDB, type IDBPDatabase } from "idb";
+import { openDB, type IDBPDatabase, type DBSchema } from "idb";
 import type { Schedule } from "./types";
 
 const DB_NAME    = "nexus-schedules";
 const DB_VERSION = 1;
-const STORE      = "schedules";
-const META       = "meta";
 
-interface NexusDB {
+interface NexusDB extends DBSchema {
   schedules: { key: string; value: Schedule };
   meta:      { key: string; value: { activeId: string | null } };
 }
 
 let dbPromise: Promise<IDBPDatabase<NexusDB>> | null = null;
 
-function getDB() {
+function getDB(): Promise<IDBPDatabase<NexusDB>> {
   if (typeof window === "undefined") {
     return Promise.reject(new Error("IndexedDB unavailable on server."));
   }
   if (!dbPromise) {
     dbPromise = openDB<NexusDB>(DB_NAME, DB_VERSION, {
       upgrade(db) {
-        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
-        if (!db.objectStoreNames.contains(META))  db.createObjectStore(META);
+        if (!db.objectStoreNames.contains("schedules")) db.createObjectStore("schedules");
+        if (!db.objectStoreNames.contains("meta"))      db.createObjectStore("meta");
       },
     });
   }
@@ -33,43 +31,41 @@ function getDB() {
 // ── Public API ─────────────────────────────────────────────────────────────
 export async function saveSchedule(s: Schedule): Promise<void> {
   const db = await getDB();
-  await db.put(STORE, s, s.id);
-  await db.put(META, { activeId: s.id }, "active");
+  await db.put("schedules", s, s.id);
+  await db.put("meta", { activeId: s.id }, "active");
 }
 
 export async function listSchedules(): Promise<Schedule[]> {
   const db = await getDB();
-  const keys = await db.getAllKeys(STORE);
-  const all  = await Promise.all(keys.map((k) => db.get(STORE, k)));
-  return all.filter((x): x is Schedule => !!x);
+  return db.getAll("schedules");
 }
 
 export async function getSchedule(id: string): Promise<Schedule | undefined> {
   const db = await getDB();
-  return db.get(STORE, id);
+  return db.get("schedules", id);
 }
 
 export async function getActiveSchedule(): Promise<Schedule | undefined> {
   const db   = await getDB();
-  const meta = await db.get(META, "active");
+  const meta = await db.get("meta", "active");
   if (!meta?.activeId) return undefined;
-  return db.get(STORE, meta.activeId);
+  return db.get("schedules", meta.activeId);
 }
 
 export async function setActiveSchedule(id: string): Promise<void> {
   const db = await getDB();
-  await db.put(META, { activeId: id }, "active");
+  await db.put("meta", { activeId: id }, "active");
 }
 
 export async function deleteSchedule(id: string): Promise<void> {
   const db = await getDB();
-  await db.delete(STORE, id);
-  const meta = await db.get(META, "active");
-  if (meta?.activeId === id) await db.put(META, { activeId: null }, "active");
+  await db.delete("schedules", id);
+  const meta = await db.get("meta", "active");
+  if (meta?.activeId === id) await db.put("meta", { activeId: null }, "active");
 }
 
 export async function clearAllSchedules(): Promise<void> {
   const db = await getDB();
-  await db.clear(STORE);
-  await db.put(META, { activeId: null }, "active");
+  await db.clear("schedules");
+  await db.put("meta", { activeId: null }, "active");
 }
