@@ -301,7 +301,7 @@ function ExpandedRow({
           <div className="rounded-lg border border-border bg-surface/50 p-3 space-y-2">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary">Raw Schedule Evidence</p>
             <EvidenceGrid evidence={violation.evidence} />
-            {(violation.evidence as Record<string, unknown>)["formula"] && (
+            {Boolean((violation.evidence as Record<string, unknown>)["formula"]) && (
               <p className="text-[11px] text-text-secondary font-mono mt-1">
                 Formula: {String((violation.evidence as Record<string, unknown>)["formula"])}
               </p>
