@@ -1,16 +1,12 @@
 "use client";
-import { Bell, Search } from "lucide-react";
+import { Bell } from "lucide-react";
 import { PersonaSwitcher } from "./PersonaSwitcher";
+import { SearchBox } from "./SearchBox";
 
 export function TopNav() {
   return (
     <header className="h-14 flex items-center px-5 gap-4 flex-shrink-0 glass border-b border-border sticky top-0 z-40">
-      {/* Search */}
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-white/[0.04] border border-border rounded-xl text-sm text-text-secondary flex-1 max-w-xs cursor-pointer hover:border-primary/40 hover:bg-white/[0.06] transition-all group">
-        <Search size={13} className="group-hover:text-primary transition-colors" />
-        <span className="text-sm">Search projects, activities…</span>
-        <kbd className="ml-auto text-[10px] bg-border-subtle px-1.5 py-0.5 rounded-md border border-border text-text-muted font-mono">⌘K</kbd>
-      </div>
+      <SearchBox />
 
       <div className="flex-1" />
 

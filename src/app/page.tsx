@@ -1,18 +1,39 @@
+"use client";
 import { PROJECTS } from "@/lib/data/mock";
 import { computePortfolioMetrics, formatAED } from "@/lib/calculations";
 import { ProjectCard } from "@/components/ui/ProjectCard";
 import { EscalationQueue } from "@/components/portfolio/EscalationQueue";
 import Link from "next/link";
 import { TrendingDown, AlertTriangle, Clock, BarChart3, ChevronRight, ArrowRight } from "lucide-react";
+import { usePersona } from "@/components/layout/PersonaContext";
 
-// Sort projects: Red → Amber → Green, then by revenueAtRisk desc within group
-const SORTED = [...PROJECTS].sort((a, b) => {
-  const rank = { Red: 0, Amber: 1, Green: 2 };
-  if (rank[a.ragStatus] !== rank[b.ragStatus]) return rank[a.ragStatus] - rank[b.ragStatus];
-  return b.revenueAtRisk - a.revenueAtRisk;
-});
+const PERSONA_COPY = {
+  CEO:     { title: "Executive Portfolio",   sub: "Revenue exposure & critical projects only" },
+  PMO:     { title: "Portfolio Intelligence", sub: "Governance, milestones, escalation queue" },
+  Planner: { title: "Schedule Operations",    sub: "All projects ranked by schedule slip" },
+} as const;
 
 export default function PortfolioPage() {
+  const { persona } = usePersona();
+  const copy = PERSONA_COPY[persona];
+
+  // Persona-driven sort/filter
+  const PERSONA_PROJECTS = (() => {
+    if (persona === "CEO") {
+      return [...PROJECTS]
+        .filter((p) => p.ragStatus !== "Green")
+        .sort((a, b) => b.revenueAtRisk - a.revenueAtRisk);
+    }
+    if (persona === "Planner") {
+      return [...PROJECTS].sort((a, b) => b.delayDays - a.delayDays);
+    }
+    return [...PROJECTS].sort((a, b) => {
+      const rank = { Red: 0, Amber: 1, Green: 2 };
+      if (rank[a.ragStatus] !== rank[b.ragStatus]) return rank[a.ragStatus] - rank[b.ragStatus];
+      return b.revenueAtRisk - a.revenueAtRisk;
+    });
+  })();
+  const SORTED = PERSONA_PROJECTS;
   const m = computePortfolioMetrics(PROJECTS);
   const red   = PROJECTS.filter((p) => p.ragStatus === "Red");
   const amber = PROJECTS.filter((p) => p.ragStatus === "Amber");
@@ -29,9 +50,14 @@ export default function PortfolioPage() {
       {/* ── Page header ──────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4 pt-1 animate-fade-in">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary tracking-tight">Portfolio Intelligence</h1>
+          <div className="flex items-center gap-2 mb-1">
+            <h1 className="text-2xl font-bold text-text-primary tracking-tight">{copy.title}</h1>
+            <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-md border border-primary/30 bg-primary/10 text-primary font-semibold">
+              {persona} View
+            </span>
+          </div>
           <p className="text-sm text-text-secondary mt-1">
-            {now} · {PROJECTS.length} active projects · ALDAR Properties
+            {now} · {SORTED.length} of {PROJECTS.length} projects · {copy.sub}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -167,7 +193,7 @@ export default function PortfolioPage() {
         <div className="xl:col-span-3">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-text-primary">
-              Projects — Severity Order
+              Projects — {persona === "CEO" ? "At-Risk by Revenue" : persona === "Planner" ? "By Schedule Slip" : "Severity Order"}
             </h2>
             <Link
               href="/projects"
