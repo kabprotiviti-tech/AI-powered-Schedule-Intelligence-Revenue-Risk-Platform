@@ -1,36 +1,40 @@
 "use client";
-import { Bell, Search, ChevronDown } from "lucide-react";
+import { Bell, Search } from "lucide-react";
 import { PersonaSwitcher } from "./PersonaSwitcher";
 
 export function TopNav() {
   return (
-    <header className="h-14 flex items-center px-6 border-b border-border bg-surface gap-4 flex-shrink-0">
+    <header className="h-14 flex items-center px-5 gap-4 flex-shrink-0 glass border-b border-border sticky top-0 z-40">
       {/* Search */}
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-border-subtle border border-border rounded-lg text-sm text-text-secondary flex-1 max-w-xs cursor-pointer hover:border-primary/40 transition-colors">
-        <Search size={14} />
-        <span>Search projects, activities…</span>
-        <span className="ml-auto text-[11px] bg-card px-1.5 py-0.5 rounded border border-border">⌘K</span>
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-white/[0.04] border border-border rounded-xl text-sm text-text-secondary flex-1 max-w-xs cursor-pointer hover:border-primary/40 hover:bg-white/[0.06] transition-all group">
+        <Search size={13} className="group-hover:text-primary transition-colors" />
+        <span className="text-sm">Search projects, activities…</span>
+        <kbd className="ml-auto text-[10px] bg-border-subtle px-1.5 py-0.5 rounded-md border border-border text-text-muted font-mono">⌘K</kbd>
       </div>
 
       <div className="flex-1" />
 
-      {/* Persona Switcher */}
+      {/* Persona */}
       <PersonaSwitcher />
 
       {/* Notifications */}
-      <button className="relative w-8 h-8 rounded-lg bg-border-subtle border border-border flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors">
-        <Bell size={15} />
-        <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-danger rounded-full text-[9px] text-white flex items-center justify-center font-bold">3</span>
+      <button className="relative w-8 h-8 rounded-xl bg-white/[0.04] border border-border flex items-center justify-center text-text-secondary hover:text-text-primary hover:border-border-subtle/80 transition-all">
+        <Bell size={14} />
+        <span className="absolute -top-1 -right-1 w-4 h-4 bg-danger rounded-full text-[9px] text-white flex items-center justify-center font-bold shadow-glow-red">3</span>
       </button>
 
+      {/* Divider */}
+      <div className="w-px h-5 bg-border" />
+
       {/* User */}
-      <div className="flex items-center gap-2 pl-3 border-l border-border">
-        <div className="w-7 h-7 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center text-xs font-semibold text-primary">PM</div>
-        <div className="hidden sm:block">
-          <div className="text-xs font-medium text-text-primary">PMO Director</div>
-          <div className="text-[11px] text-text-secondary">ALDAR Properties</div>
+      <div className="flex items-center gap-2.5 cursor-pointer group">
+        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary/40 to-blue-600/40 border border-primary/30 flex items-center justify-center text-xs font-bold text-primary">
+          BS
         </div>
-        <ChevronDown size={13} className="text-text-secondary" />
+        <div className="hidden sm:block">
+          <div className="text-xs font-semibold text-text-primary leading-none mb-0.5">Badal Shah</div>
+          <div className="text-[10px] text-text-secondary">PMO Director</div>
+        </div>
       </div>
     </header>
   );
