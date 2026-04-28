@@ -7,7 +7,7 @@ import { HealthGauge } from "@/components/ui/HealthGauge";
 import { SPITrendChart } from "@/components/project/SPITrendChart";
 import { MilestoneTracker } from "@/components/project/MilestoneTracker";
 import Link from "next/link";
-import { ChevronRight, ArrowRight, Layers, Cpu } from "lucide-react";
+import { ChevronRight, ArrowRight, Layers, Cpu, DollarSign } from "lucide-react";
 
 interface Props {
   params: { id: string };
@@ -59,6 +59,13 @@ export default function ProjectDetailPage({ params }: Props) {
           >
             <Cpu size={13} />
             Engine Analysis
+          </Link>
+          <Link
+            href={`/projects/${project.id}/financial`}
+            className="flex items-center gap-2 text-xs bg-surface border border-border text-text-primary px-4 py-2 rounded-lg hover:border-primary hover:text-primary transition-colors font-medium"
+          >
+            <DollarSign size={13} />
+            Financial Trace
           </Link>
           <Link
             href={`/projects/${project.id}/activities`}

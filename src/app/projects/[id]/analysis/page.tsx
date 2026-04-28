@@ -10,7 +10,7 @@ import {
 import {
   ChevronRight, RefreshCw, AlertTriangle, CheckCircle2, XCircle,
   Zap, TrendingUp, Activity, Cpu, Info, Download, FileSpreadsheet, FileText,
-  HelpCircle,
+  HelpCircle, DollarSign,
 } from "lucide-react";
 import { ExplainPanel }                 from "@/components/ExplainPanel";
 import { CopilotPanel, CopilotTrigger } from "@/components/CopilotPanel";
@@ -721,6 +721,15 @@ export default function AnalysisPage() {
           <p className="text-sm text-text-secondary mt-0.5">{project.name} · {project.type}</p>
         </div>
         <div className="flex items-center gap-2">
+          {result && (
+            <Link
+              href={`/projects/${params.id}/financial`}
+              className="flex items-center gap-2 px-4 py-2 bg-surface hover:bg-surface/80 text-text-primary border border-border rounded-lg text-sm font-medium transition-colors"
+            >
+              <DollarSign className="w-4 h-4" />
+              Financial Trace
+            </Link>
+          )}
           {result && <ExportMenu projectId={params.id} />}
           <button
             onClick={run}
