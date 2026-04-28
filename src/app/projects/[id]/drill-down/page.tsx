@@ -530,8 +530,8 @@ export default function DrillDownPage() {
     }
 
     return [...list].sort((a, b) => {
-      const av = (a as Record<string, unknown>)[sortKey] ?? 0;
-      const bv = (b as Record<string, unknown>)[sortKey] ?? 0;
+      const av = (a as unknown as Record<string, unknown>)[sortKey] ?? 0;
+      const bv = (b as unknown as Record<string, unknown>)[sortKey] ?? 0;
       const m  = sortDir === "desc" ? -1 : 1;
       if (typeof av === "number" && typeof bv === "number") return m * (av - bv);
       return m * String(av).localeCompare(String(bv));
