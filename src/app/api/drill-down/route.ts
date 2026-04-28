@@ -86,8 +86,8 @@ function sortViolations(
   dir: 1 | -1,
 ): DCMAViolationRecord[] {
   return [...list].sort((a, b) => {
-    const av = (a as Record<string, unknown>)[sortBy] ?? 0;
-    const bv = (b as Record<string, unknown>)[sortBy] ?? 0;
+    const av = (a as unknown as Record<string, unknown>)[sortBy] ?? 0;
+    const bv = (b as unknown as Record<string, unknown>)[sortBy] ?? 0;
     if (typeof av === "number" && typeof bv === "number") return dir * (bv - av);
     return dir * String(av).localeCompare(String(bv));
   });
