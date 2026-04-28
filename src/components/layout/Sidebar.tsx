@@ -3,12 +3,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, FolderKanban, AlertTriangle,
-  BarChart3, FileDown, Settings, Zap,
+  BarChart3, FileDown, Settings, Zap, Upload,
 } from "lucide-react";
 import clsx from "clsx";
+import { useSchedule } from "@/lib/schedule/ScheduleProvider";
 
 const NAV = [
-  { label: "Portfolio",      href: "/",          icon: LayoutDashboard },
+  { label: "Dashboard",      href: "/",          icon: LayoutDashboard },
+  { label: "Import Schedule",href: "/upload",    icon: Upload },
   { label: "Projects",       href: "/projects",   icon: FolderKanban },
   { label: "Risk Register",  href: "/risks",      icon: AlertTriangle },
   { label: "Analytics",      href: "/analytics",  icon: BarChart3 },
@@ -17,6 +19,7 @@ const NAV = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { active, all } = useSchedule();
 
   return (
     <aside className="w-56 flex-shrink-0 flex flex-col bg-surface border-r border-border relative">
@@ -94,8 +97,14 @@ export function Sidebar() {
             <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
             <span className="text-[10px] text-success font-medium uppercase tracking-wider">Live</span>
           </div>
-          <div className="text-xs font-semibold text-text-primary">ALDAR Properties</div>
-          <div className="text-[11px] text-text-secondary mt-0.5">8 Active Projects</div>
+          <div className="text-xs font-semibold text-text-primary truncate">
+            {active?.project.name ?? "No schedule"}
+          </div>
+          <div className="text-[11px] text-text-secondary mt-0.5">
+            {active
+              ? `${active.activities.length.toLocaleString()} activities · ${all.length} imported`
+              : "Import a schedule to begin"}
+          </div>
         </div>
       </div>
     </aside>
