@@ -1,108 +1,71 @@
-// Critical Path Method — forward/backward pass with calendar-aware durations.
+// Critical Path Method — forward/backward pass.
 //
 // Output, per activity:
 //   earlyStart / earlyFinish / lateStart / lateFinish (ms epoch)
 //   totalFloat / freeFloat (working hours)
 //   isCritical (totalFloat <= 0)
 //
-// Approach:
-//   1. Topological sort over predecessor edges (Kahn's algorithm).
-//      Cycles → fall back to insertion order with a warning.
-//   2. Forward pass — compute ES/EF respecting predecessor type (FS/SS/FF/SF) + lag.
-//   3. Backward pass — compute LS/LF.
-//   4. Total float = LS - ES (or LF - EF). Critical iff TF <= 0.
-//
-// Calendar handling:
-//   For v1, a calendar contributes only hoursPerDay (clndr_data XML parse is
-//   non-trivial and deferred). Working days assumed Mon–Fri unless calendar says
-//   otherwise. Holidays not yet honoured. This is good enough for >90% of
-//   commercial schedules where activities span weeks/months, not minutes.
+// Performance:
+//   - Pre-built successors map → both passes O(V + E), not O(V²).
+//   - addWorkingHours is O(1) using an avg-working-hours-per-week ratio.
+//     Trades exact holiday/weekend handling for being able to scale to
+//     50k+ activity P6 schedules without freezing the browser.
 
 import type { Schedule, ScheduleActivity, Calendar, Predecessor, DependencyType } from "./types";
 
-// ── Calendar helpers ───────────────────────────────────────────────────────
 const MS_DAY  = 86_400_000;
 const MS_HOUR = 3_600_000;
 
 interface CalIndex {
   calendars: Map<string, Calendar>;
   defaultId: string;
+  // Cached working-hour-per-calendar-day ratio per calendar
+  ratio:     Map<string, number>;
 }
 
 function buildCalIndex(s: Schedule): CalIndex {
   const calendars = new Map<string, Calendar>();
   for (const c of s.calendars) calendars.set(c.id, c);
   if (calendars.size === 0) {
-    const fallback: Calendar = { id: "default", name: "Standard", hoursPerDay: 8, workdays: [1,2,3,4,5] };
+    const fallback: Calendar = { id: "default", name: "Standard", hoursPerDay: 8, workdays: [1, 2, 3, 4, 5] };
     calendars.set("default", fallback);
   }
   const defaultId = s.project.defaultCalendarId ?? calendars.keys().next().value!;
-  return { calendars, defaultId };
+  const ratio = new Map<string, number>();
+  for (const [id, c] of calendars) {
+    const wpw = Math.max(1, c.workdays.length);
+    // hours per CALENDAR day = (workdays per week × hours per workday) / 7
+    ratio.set(id, (wpw * Math.max(1, c.hoursPerDay)) / 7);
+  }
+  return { calendars, defaultId, ratio };
 }
 
 function getCal(idx: CalIndex, calId?: string): Calendar {
   return calId ? idx.calendars.get(calId) ?? idx.calendars.get(idx.defaultId)! : idx.calendars.get(idx.defaultId)!;
 }
 
-// Add `hours` of working time to `from` (epoch ms), respecting workdays + hoursPerDay.
-function addWorkingHours(from: number, hours: number, cal: Calendar): number {
+function getRatio(idx: CalIndex, calId?: string): number {
+  return idx.ratio.get(calId ?? idx.defaultId) ?? (5 * 8) / 7;
+}
+
+// O(1) working-hours arithmetic — uses calendar-day ratio.
+function addWorkingHours(from: number, hours: number, _cal: Calendar, ratio: number): number {
   if (hours <= 0) return from;
-  const hpd = Math.max(1, cal.hoursPerDay);
-  const workdays = new Set(cal.workdays);
-
-  let cursor = from;
-  let remaining = hours;
-
-  while (remaining > 0) {
-    const d = new Date(cursor);
-    const dow = d.getUTCDay() === 0 ? 7 : d.getUTCDay(); // ISO 1..7
-    if (workdays.has(dow)) {
-      // Take as much as we can today (assume full workday available)
-      const take = Math.min(remaining, hpd);
-      cursor += take * MS_HOUR;
-      remaining -= take;
-      if (remaining > 0) cursor = nextDayUTCStart(cursor);
-    } else {
-      cursor = nextDayUTCStart(cursor);
-    }
-  }
-  return cursor;
+  const calendarMs = (hours / ratio) * MS_HOUR;
+  return from + calendarMs;
 }
 
-function subtractWorkingHours(from: number, hours: number, cal: Calendar): number {
+function subtractWorkingHours(from: number, hours: number, _cal: Calendar, ratio: number): number {
   if (hours <= 0) return from;
-  const hpd = Math.max(1, cal.hoursPerDay);
-  const workdays = new Set(cal.workdays);
-
-  let cursor = from;
-  let remaining = hours;
-
-  while (remaining > 0) {
-    const d = new Date(cursor);
-    const dow = d.getUTCDay() === 0 ? 7 : d.getUTCDay();
-    if (workdays.has(dow)) {
-      const take = Math.min(remaining, hpd);
-      cursor -= take * MS_HOUR;
-      remaining -= take;
-      if (remaining > 0) cursor = prevDayUTCEnd(cursor);
-    } else {
-      cursor = prevDayUTCEnd(cursor);
-    }
-  }
-  return cursor;
-}
-
-function nextDayUTCStart(t: number): number {
-  const d = new Date(t);
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0);
-}
-function prevDayUTCEnd(t: number): number {
-  const d = new Date(t);
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - 1, 23, 59, 59);
+  const calendarMs = (hours / ratio) * MS_HOUR;
+  return from - calendarMs;
 }
 
 // ── Topological sort ────────────────────────────────────────────────────────
-function topoSort(activities: ScheduleActivity[]): { order: ScheduleActivity[]; cyclic: boolean } {
+function topoSort(
+  activities: ScheduleActivity[],
+  successors: Map<string, { succId: string; type: DependencyType; lagHours: number }[]>,
+): { order: ScheduleActivity[]; cyclic: boolean } {
   const byId = new Map(activities.map((a) => [a.id, a]));
   const inDeg = new Map<string, number>();
   for (const a of activities) inDeg.set(a.id, 0);
@@ -116,27 +79,17 @@ function topoSort(activities: ScheduleActivity[]): { order: ScheduleActivity[]; 
   for (const [id, deg] of inDeg) if (deg === 0) queue.push(id);
 
   const order: ScheduleActivity[] = [];
-  // Build successor map for queue advancement
-  const successors = new Map<string, string[]>();
-  for (const a of activities) {
-    for (const p of a.predecessors) {
-      if (!successors.has(p.predId)) successors.set(p.predId, []);
-      successors.get(p.predId)!.push(a.id);
-    }
-  }
-
   while (queue.length) {
     const id = queue.shift()!;
     const a = byId.get(id);
     if (a) order.push(a);
-    for (const succ of successors.get(id) ?? []) {
-      inDeg.set(succ, (inDeg.get(succ) ?? 1) - 1);
-      if (inDeg.get(succ) === 0) queue.push(succ);
+    for (const { succId } of successors.get(id) ?? []) {
+      inDeg.set(succId, (inDeg.get(succId) ?? 1) - 1);
+      if (inDeg.get(succId) === 0) queue.push(succId);
     }
   }
 
   if (order.length !== activities.length) {
-    // Cycle — append the rest in original order so we still produce something.
     const seen = new Set(order.map((a) => a.id));
     for (const a of activities) if (!seen.has(a.id)) order.push(a);
     return { order, cyclic: true };
@@ -154,7 +107,7 @@ export interface CPMResult {
   freeFloat:   Map<string, number>;  // hours
   critical:    Set<string>;
   warnings:    string[];
-  projectFinish: number;             // earliest finish across all activities (ms)
+  projectFinish: number;
 }
 
 function predConstraint(
@@ -163,13 +116,12 @@ function predConstraint(
   type: DependencyType,
   lagHrs: number,
   cal: Calendar,
+  ratio: number,
 ): number {
-  // Returns the earliest ES allowed for the successor given the predecessor's dates.
-  // Lag is added in working hours.
   switch (type) {
-    case "FS": return addWorkingHours(predEF, lagHrs, cal);
-    case "SS": return addWorkingHours(predES, lagHrs, cal);
-    case "FF": return predEF + lagHrs * MS_HOUR; // FF/SF: lag is on finish/start of successor — kept simple here
+    case "FS": return addWorkingHours(predEF, lagHrs, cal, ratio);
+    case "SS": return addWorkingHours(predES, lagHrs, cal, ratio);
+    case "FF": return predEF + lagHrs * MS_HOUR;
     case "SF": return predES + lagHrs * MS_HOUR;
   }
 }
@@ -177,7 +129,17 @@ function predConstraint(
 export function runCPM(s: Schedule): CPMResult {
   const idx = buildCalIndex(s);
   const warnings: string[] = [];
-  const { order, cyclic } = topoSort(s.activities);
+
+  // Pre-build successor map once — used by topo sort, backward pass, and free float.
+  const successors = new Map<string, { succId: string; type: DependencyType; lagHours: number }[]>();
+  for (const a of s.activities) {
+    for (const p of a.predecessors) {
+      if (!successors.has(p.predId)) successors.set(p.predId, []);
+      successors.get(p.predId)!.push({ succId: a.id, type: p.type, lagHours: p.lagHours });
+    }
+  }
+
+  const { order, cyclic } = topoSort(s.activities, successors);
   if (cyclic) warnings.push("Schedule has cyclic logic — CPM result is approximate.");
 
   const ES = new Map<string, number>();
@@ -190,7 +152,8 @@ export function runCPM(s: Schedule): CPMResult {
 
   // ── Forward pass
   for (const a of order) {
-    const cal = getCal(idx, a.calendarId);
+    const cal   = getCal(idx, a.calendarId);
+    const ratio = getRatio(idx, a.calendarId);
     let es = a.plannedStart ? new Date(a.plannedStart).getTime() : 0;
     if (a.actualStart) es = new Date(a.actualStart).getTime();
 
@@ -199,74 +162,62 @@ export function runCPM(s: Schedule): CPMResult {
       if (!pred) continue;
       const predEF = EF.get(pred.id) ?? (pred.plannedFinish ? new Date(pred.plannedFinish).getTime() : 0);
       const predES = ES.get(pred.id) ?? (pred.plannedStart  ? new Date(pred.plannedStart).getTime()  : 0);
-      const constrained = predConstraint(predEF, predES, p.type, p.lagHours, cal);
+      const constrained = predConstraint(predEF, predES, p.type, p.lagHours, cal, ratio);
       if (constrained > es) es = constrained;
     }
 
     if (es <= 0 && a.plannedStart) es = new Date(a.plannedStart).getTime();
     const ef = a.actualFinish
       ? new Date(a.actualFinish).getTime()
-      : addWorkingHours(es, Math.max(0, a.remainingHours || a.durationHours), cal);
+      : addWorkingHours(es, Math.max(0, a.remainingHours || a.durationHours), cal, ratio);
 
     ES.set(a.id, es);
     EF.set(a.id, ef);
   }
 
-  // Project finish = max EF
   let projectFinish = 0;
   for (const ef of EF.values()) if (ef > projectFinish) projectFinish = ef;
 
-  // ── Backward pass
+  // ── Backward pass — uses successors map, no V² scan
   for (let i = order.length - 1; i >= 0; i--) {
     const a = order[i];
-    const cal = getCal(idx, a.calendarId);
-
-    // Find successors: activities that have `a` as predecessor
-    const successors: { succ: ScheduleActivity; type: DependencyType; lagHrs: number }[] = [];
-    for (const x of s.activities) {
-      for (const p of x.predecessors) {
-        if (p.predId === a.id) successors.push({ succ: x, type: p.type, lagHrs: p.lagHours });
-      }
-    }
+    const cal   = getCal(idx, a.calendarId);
+    const ratio = getRatio(idx, a.calendarId);
+    const succList = successors.get(a.id) ?? [];
 
     let lf: number;
-    if (successors.length === 0) {
+    if (succList.length === 0) {
       lf = projectFinish;
     } else {
       lf = Number.POSITIVE_INFINITY;
-      for (const { succ, type, lagHrs } of successors) {
-        const succLS = LS.get(succ.id) ?? projectFinish;
-        const succLF = LF.get(succ.id) ?? projectFinish;
+      for (const { succId, type, lagHours } of succList) {
+        const succLS = LS.get(succId) ?? projectFinish;
+        const succLF = LF.get(succId) ?? projectFinish;
         let constraint: number;
         switch (type) {
-          case "FS": constraint = subtractWorkingHours(succLS, lagHrs, cal); break;
-          case "SS": constraint = subtractWorkingHours(succLS, lagHrs, cal); break;
-          case "FF": constraint = succLF - lagHrs * MS_HOUR; break;
-          case "SF": constraint = succLF - lagHrs * MS_HOUR; break;
+          case "FS":
+          case "SS": constraint = subtractWorkingHours(succLS, lagHours, cal, ratio); break;
+          case "FF":
+          case "SF": constraint = succLF - lagHours * MS_HOUR; break;
         }
         if (constraint < lf) lf = constraint;
       }
     }
     const dur = Math.max(0, a.remainingHours || a.durationHours);
-    const ls = subtractWorkingHours(lf, dur, cal);
+    const ls = subtractWorkingHours(lf, dur, cal, ratio);
 
     LS.set(a.id, ls);
     LF.set(a.id, lf);
-
-    const tf = (lf - (EF.get(a.id) ?? lf)) / MS_HOUR;
-    TF.set(a.id, tf);
+    TF.set(a.id, (lf - (EF.get(a.id) ?? lf)) / MS_HOUR);
   }
 
-  // Free float = min(succ.ES) - this.EF
+  // ── Free float — also uses successors map, O(V + E)
   for (const a of s.activities) {
+    const succList = successors.get(a.id) ?? [];
     let minSuccES = Number.POSITIVE_INFINITY;
-    for (const x of s.activities) {
-      for (const p of x.predecessors) {
-        if (p.predId === a.id) {
-          const succES = ES.get(x.id);
-          if (succES !== undefined && succES < minSuccES) minSuccES = succES;
-        }
-      }
+    for (const { succId } of succList) {
+      const succES = ES.get(succId);
+      if (succES !== undefined && succES < minSuccES) minSuccES = succES;
     }
     const ef = EF.get(a.id) ?? 0;
     const ff = minSuccES === Number.POSITIVE_INFINITY ? (TF.get(a.id) ?? 0) : (minSuccES - ef) / MS_HOUR;

@@ -22,16 +22,21 @@ export default function UploadPage() {
 
   const handleFile = useCallback(async (file: File) => {
     setPending({ fileName: file.name, status: "parsing" });
+    // Yield once so the "Parsing…" state can paint before the main thread blocks
+    await new Promise((r) => setTimeout(r, 0));
     try {
       const text = await file.text();
       const format = detectFormat(text, file.name);
+      // Yield again before the heavy parse so the spinner can render
+      await new Promise((r) => setTimeout(r, 0));
       const sched  = await parseSchedule(file);
       setPending({ fileName: file.name, status: "ready", format, schedule: sched });
     } catch (e) {
+      console.error("Schedule parse failed:", e);
       setPending({
         fileName: file.name,
         status: "error",
-        error: e instanceof Error ? e.message : String(e),
+        error: e instanceof Error ? `${e.message}` : String(e),
       });
     }
   }, []);
