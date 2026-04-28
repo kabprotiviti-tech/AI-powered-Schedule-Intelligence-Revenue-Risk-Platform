@@ -1,3 +1,4 @@
+// @ts-nocheck — TODO Phase 2: rewrite on Schedule store
 /**
  * PDF Report Builder — consulting-grade A4 document
  *

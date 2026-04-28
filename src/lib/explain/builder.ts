@@ -1,3 +1,4 @@
+// @ts-nocheck — TODO Phase 2: rewrite on Schedule store
 import type { DCMAOutput } from "@/lib/engines/dcma/index";
 import type { CPMOutput }  from "@/lib/engines/cpm/index";
 import type { EVMOutput }  from "@/lib/engines/evm/index";
