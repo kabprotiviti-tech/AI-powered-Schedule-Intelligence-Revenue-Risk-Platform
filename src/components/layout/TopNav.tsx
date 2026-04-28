@@ -2,6 +2,7 @@
 import { Bell } from "lucide-react";
 import { PersonaSwitcher } from "./PersonaSwitcher";
 import { SearchBox } from "./SearchBox";
+import { ThemeSwitcher } from "./ThemeSwitcher";
 
 export function TopNav() {
   return (
@@ -13,8 +14,11 @@ export function TopNav() {
       {/* Persona */}
       <PersonaSwitcher />
 
+      {/* Theme */}
+      <ThemeSwitcher />
+
       {/* Notifications */}
-      <button className="relative w-8 h-8 rounded-xl bg-white/[0.04] border border-border flex items-center justify-center text-text-secondary hover:text-text-primary hover:border-border-subtle/80 transition-all">
+      <button className="relative w-8 h-8 rounded-xl bg-overlay/[0.04] border border-border flex items-center justify-center text-text-secondary hover:text-text-primary hover:border-border-subtle/80 transition-all">
         <Bell size={14} />
         <span className="absolute -top-1 -right-1 w-4 h-4 bg-danger rounded-full text-[9px] text-white flex items-center justify-center font-bold shadow-glow-red">3</span>
       </button>

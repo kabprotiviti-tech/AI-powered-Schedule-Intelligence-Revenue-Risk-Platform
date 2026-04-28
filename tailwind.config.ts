@@ -1,5 +1,7 @@
 import type { Config } from "tailwindcss";
 
+const withAlpha = (cssVar: string) => `rgb(var(${cssVar}) / <alpha-value>)`;
+
 const config: Config = {
   content: [
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
@@ -9,19 +11,20 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        canvas:          "#070c18",
-        surface:         "#0d1424",
-        card:            "#111d2e",
-        border:          "#1a2d45",
-        "border-subtle": "#162038",
-        primary:         "#3b82f6",
-        "primary-dim":   "#1d4ed8",
-        success:         "#10b981",
-        warning:         "#f59e0b",
-        danger:          "#ef4444",
-        "text-primary":  "#e2e8f0",
-        "text-secondary":"#64748b",
-        "text-muted":    "#334155",
+        canvas:           withAlpha("--canvas"),
+        surface:          withAlpha("--surface"),
+        card:             withAlpha("--card"),
+        border:           withAlpha("--border"),
+        "border-subtle":  withAlpha("--border-subtle"),
+        primary:          withAlpha("--primary"),
+        "primary-dim":    withAlpha("--primary-dim"),
+        success:          withAlpha("--success"),
+        warning:          withAlpha("--warning"),
+        danger:           withAlpha("--danger"),
+        "text-primary":   withAlpha("--text-primary"),
+        "text-secondary": withAlpha("--text-secondary"),
+        "text-muted":     withAlpha("--text-muted"),
+        overlay:          withAlpha("--overlay"),
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],
@@ -68,9 +71,7 @@ const config: Config = {
           "0%,100%": { transform: "scale(1)",   opacity: "1" },
           "50%":     { transform: "scale(1.5)", opacity: "0.6" },
         },
-        dash: {
-          to: { strokeDashoffset: "0" },
-        },
+        dash: { to: { strokeDashoffset: "0" } },
         "count-up": {
           "0%":   { opacity: "0", transform: "translateY(8px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },

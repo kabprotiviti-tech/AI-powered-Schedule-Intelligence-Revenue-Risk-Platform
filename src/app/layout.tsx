@@ -3,6 +3,7 @@ import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopNav } from "@/components/layout/TopNav";
 import { PersonaProvider } from "@/components/layout/PersonaContext";
+import { ThemeProvider } from "@/components/layout/ThemeContext";
 
 export const metadata: Metadata = {
   title: "NEXUS — Schedule Intelligence & Revenue Risk Platform",
@@ -12,7 +13,8 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="bg-canvas text-text-primary antialiased">
+      <body className="bg-canvas text-text-primary antialiased theme-transition">
+        <ThemeProvider>
         <PersonaProvider>
           <div className="flex h-screen overflow-hidden">
             <Sidebar />
@@ -24,6 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </div>
         </PersonaProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

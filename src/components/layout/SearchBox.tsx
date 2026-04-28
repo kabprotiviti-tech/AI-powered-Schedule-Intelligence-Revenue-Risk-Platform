@@ -75,7 +75,7 @@ export function SearchBox() {
             setOpen(true);
             setTimeout(() => inputRef.current?.focus(), 0);
           }}
-          className="w-full flex items-center gap-2 px-3 py-1.5 bg-white/[0.04] border border-border rounded-xl text-sm text-text-secondary cursor-pointer hover:border-primary/40 hover:bg-white/[0.06] transition-all group"
+          className="w-full flex items-center gap-2 px-3 py-1.5 bg-overlay/[0.04] border border-border rounded-xl text-sm text-text-secondary cursor-pointer hover:border-primary/40 hover:bg-overlay/[0.06] transition-all group"
         >
           <Search size={13} className="group-hover:text-primary transition-colors" />
           <span className="text-sm">Search projects, activities…</span>
@@ -84,7 +84,7 @@ export function SearchBox() {
           </kbd>
         </button>
       ) : (
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-white/[0.06] border border-primary/40 rounded-xl text-sm">
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-overlay/[0.06] border border-primary/40 rounded-xl text-sm">
           <Search size={13} className="text-primary shrink-0" />
           <input
             ref={inputRef}
@@ -124,7 +124,7 @@ export function SearchBox() {
                       setQ("");
                     }}
                     className={`flex items-center gap-3 px-3 py-2 text-xs ${
-                      i === activeIdx ? "bg-primary/10" : "hover:bg-white/[0.03]"
+                      i === activeIdx ? "bg-primary/10" : "hover:bg-overlay/[0.03]"
                     }`}
                   >
                     <span

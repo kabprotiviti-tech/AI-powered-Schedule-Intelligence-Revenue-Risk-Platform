@@ -14,7 +14,7 @@ export function PersonaSwitcher() {
   const { persona, setPersona } = usePersona();
 
   return (
-    <div className="flex items-center gap-0.5 bg-white/[0.04] border border-border rounded-xl p-1">
+    <div className="flex items-center gap-0.5 bg-overlay/[0.04] border border-border rounded-xl p-1">
       {PERSONAS.map(({ id, label, icon: Icon, desc }) => (
         <button
           key={id}
@@ -24,7 +24,7 @@ export function PersonaSwitcher() {
             "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-200",
             persona === id
               ? "bg-primary text-white shadow-sm"
-              : "text-text-secondary hover:text-text-primary hover:bg-white/[0.05]",
+              : "text-text-secondary hover:text-text-primary hover:bg-overlay/[0.05]",
           )}
         >
           <Icon size={12} strokeWidth={persona === id ? 2.5 : 1.8} />

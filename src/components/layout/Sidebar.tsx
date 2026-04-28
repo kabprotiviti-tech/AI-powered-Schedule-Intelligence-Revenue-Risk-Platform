@@ -50,7 +50,7 @@ export function Sidebar() {
                 "relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 group",
                 active
                   ? "bg-primary/10 text-primary"
-                  : "text-text-secondary hover:text-text-primary hover:bg-white/[0.04]",
+                  : "text-text-secondary hover:text-text-primary hover:bg-overlay/[0.04]",
               )}
             >
               {/* Active left bar */}
@@ -71,7 +71,7 @@ export function Sidebar() {
 
               {/* Hover background shimmer */}
               {!active && (
-                <span className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-gradient-to-r from-white/[0.03] to-transparent pointer-events-none" />
+                <span className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-gradient-to-r from-overlay/[0.03] to-transparent pointer-events-none" />
               )}
             </Link>
           );
@@ -82,14 +82,14 @@ export function Sidebar() {
       <div className="px-2.5 pb-4 space-y-1 border-t border-border pt-3">
         <Link
           href="/settings"
-          className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-text-secondary hover:text-text-primary hover:bg-white/[0.04] transition-all group"
+          className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-text-secondary hover:text-text-primary hover:bg-overlay/[0.04] transition-all group"
         >
           <Settings size={16} strokeWidth={1.7} className="group-hover:rotate-45 transition-transform duration-300" />
           Settings
         </Link>
 
         {/* Platform badge */}
-        <div className="mx-1 mt-2 rounded-xl p-3 bg-gradient-to-br from-white/[0.04] to-transparent border border-border/60">
+        <div className="mx-1 mt-2 rounded-xl p-3 bg-gradient-to-br from-overlay/[0.04] to-transparent border border-border/60">
           <div className="flex items-center gap-2 mb-1.5">
             <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
             <span className="text-[10px] text-success font-medium uppercase tracking-wider">Live</span>
