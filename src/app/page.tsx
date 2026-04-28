@@ -169,19 +169,26 @@ export default function PortfolioPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2">
           {dcma.checks.map((c) => {
             const Icon = checkIcon[c.status];
-            return (
-              <div
-                key={c.id}
-                title={`${c.description}\nThreshold: ${c.threshold}\n${c.metricLabel}: ${c.metricValue}`}
-                className={`rounded-lg border px-3 py-2.5 ${checkBadge[c.status]}`}
-              >
+            const clickable = c.failingIds.length > 0;
+            const inner = (
+              <>
                 <div className="flex items-center gap-1.5 mb-1">
                   <Icon size={12} />
                   <span className="text-[10px] font-bold uppercase tracking-wider truncate">{c.id}</span>
                 </div>
                 <div className="text-[11px] font-semibold truncate">{c.name}</div>
                 <div className="text-[10px] opacity-80 font-mono mt-0.5">{c.metricValue}</div>
-              </div>
+              </>
+            );
+            return (
+              <Link
+                key={c.id}
+                href={`/dcma/${c.id}`}
+                title={`${c.description}\nThreshold: ${c.threshold}\n${c.metricLabel}: ${c.metricValue}\n${clickable ? `Click to see ${c.failingIds.length} failing activities` : ""}`}
+                className={`rounded-lg border px-3 py-2.5 transition-all ${checkBadge[c.status]} ${clickable ? "hover:-translate-y-0.5 hover:shadow-sm cursor-pointer" : ""}`}
+              >
+                {inner}
+              </Link>
             );
           })}
         </div>
@@ -197,13 +204,18 @@ export default function PortfolioPage() {
           </div>
           <ul className="divide-y divide-border">
             {worstSlippages.map((v) => (
-              <li key={v.id} className="py-2 flex items-center gap-3 text-xs">
-                <span className="font-mono text-text-secondary w-24 shrink-0 truncate">{v.activity?.code}</span>
-                <span className="flex-1 truncate text-text-primary">{v.activity?.name}</span>
-                <span className="font-mono text-danger shrink-0">+{v.finishVarDays}d finish</span>
-                {v.durationVarDays > 0 && (
-                  <span className="font-mono text-warning shrink-0">+{v.durationVarDays}d duration</span>
-                )}
+              <li key={v.id}>
+                <Link
+                  href={`/activity/${v.id}`}
+                  className="flex items-center gap-3 py-2 text-xs hover:bg-overlay/[0.03] -mx-3 px-3 rounded-lg transition-colors group"
+                >
+                  <span className="font-mono text-text-secondary w-24 shrink-0 truncate">{v.activity?.code}</span>
+                  <span className="flex-1 truncate text-text-primary group-hover:text-primary transition-colors">{v.activity?.name}</span>
+                  <span className="font-mono text-danger shrink-0">+{v.finishVarDays}d finish</span>
+                  {v.durationVarDays > 0 && (
+                    <span className="font-mono text-warning shrink-0">+{v.durationVarDays}d dur</span>
+                  )}
+                </Link>
               </li>
             ))}
           </ul>
@@ -223,12 +235,17 @@ export default function PortfolioPage() {
             .sort((a, b) => (cpm.totalFloat.get(a.id) ?? 0) - (cpm.totalFloat.get(b.id) ?? 0))
             .slice(0, 12)
             .map((a) => (
-              <li key={a.id} className="py-2 flex items-center gap-3 text-xs">
-                <span className="font-mono text-text-secondary w-24 shrink-0 truncate">{a.code}</span>
-                <span className="flex-1 truncate text-text-primary">{a.name}</span>
-                <span className="font-mono text-danger shrink-0">
-                  {((cpm.totalFloat.get(a.id) ?? 0)/8).toFixed(1)}d float
-                </span>
+              <li key={a.id}>
+                <Link
+                  href={`/activity/${a.id}`}
+                  className="flex items-center gap-3 py-2 text-xs hover:bg-overlay/[0.03] -mx-3 px-3 rounded-lg transition-colors group"
+                >
+                  <span className="font-mono text-text-secondary w-24 shrink-0 truncate">{a.code}</span>
+                  <span className="flex-1 truncate text-text-primary group-hover:text-primary transition-colors">{a.name}</span>
+                  <span className="font-mono text-danger shrink-0">
+                    {((cpm.totalFloat.get(a.id) ?? 0)/8).toFixed(1)}d float
+                  </span>
+                </Link>
               </li>
           ))}
           {cpm.critical.size === 0 && (
