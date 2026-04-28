@@ -12,7 +12,8 @@ import {
   Zap, TrendingUp, Activity, Cpu, Info, Download, FileSpreadsheet, FileText,
   HelpCircle,
 } from "lucide-react";
-import { ExplainPanel } from "@/components/ExplainPanel";
+import { ExplainPanel }                 from "@/components/ExplainPanel";
+import { CopilotPanel, CopilotTrigger } from "@/components/CopilotPanel";
 import type { OrchestratorResult } from "@/lib/engines/orchestrator";
 import type { DCMAOutput } from "@/lib/engines/dcma/index";
 import type { CPMOutput }  from "@/lib/engines/cpm/index";
@@ -662,6 +663,7 @@ export default function AnalysisPage() {
   const [result,        setResult]        = useState<OrchestratorResult | null>(null);
   const [loading,       setLoading]       = useState(false);
   const [explainMetric, setExplainMetric] = useState<string | null>(null);
+  const [copilotOpen,   setCopilotOpen]   = useState(false);
   const [error,   setError]   = useState<string | null>(null);
 
   const run = useCallback(async () => {
@@ -812,11 +814,21 @@ export default function AnalysisPage() {
         </p>
       </div>
 
-      {/* Explainability Panel — slides in from right */}
+      {/* Explainability Panel */}
       <ExplainPanel
         projectId={params.id}
         metricId={explainMetric}
         onClose={() => setExplainMetric(null)}
+      />
+
+      {/* AI Copilot */}
+      {!copilotOpen && !explainMetric && (
+        <CopilotTrigger onClick={() => setCopilotOpen(true)} active={false} />
+      )}
+      <CopilotPanel
+        projectId={params.id}
+        open={copilotOpen}
+        onClose={() => setCopilotOpen(false)}
       />
     </div>
   );
