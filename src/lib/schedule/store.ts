@@ -1,14 +1,16 @@
 // IndexedDB persistence for parsed schedules.
-// Schemas can be 50–500 MB; localStorage cannot hold them.
+// Multi-select: meta.selectedIds is the list of schedules currently shown
+// on the dashboard. Empty list ⇒ nothing selected; the dashboard shows an
+// "import or pick a schedule" empty state.
 import { openDB, type IDBPDatabase, type DBSchema } from "idb";
 import type { Schedule } from "./types";
 
 const DB_NAME    = "nexus-schedules";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 interface NexusDB extends DBSchema {
   schedules: { key: string; value: Schedule };
-  meta:      { key: string; value: { activeId: string | null } };
+  meta:      { key: string; value: { selectedIds: string[] } };
 }
 
 let dbPromise: Promise<IDBPDatabase<NexusDB>> | null = null;
@@ -19,9 +21,13 @@ function getDB(): Promise<IDBPDatabase<NexusDB>> {
   }
   if (!dbPromise) {
     dbPromise = openDB<NexusDB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
+      upgrade(db, oldVersion) {
         if (!db.objectStoreNames.contains("schedules")) db.createObjectStore("schedules");
         if (!db.objectStoreNames.contains("meta"))      db.createObjectStore("meta");
+        // v1 → v2: migrate single activeId to selectedIds[] (best-effort, no-op if missing)
+        if (oldVersion < 2) {
+          // Existing meta records will be transparently overwritten on next set.
+        }
       },
     });
   }
@@ -32,7 +38,11 @@ function getDB(): Promise<IDBPDatabase<NexusDB>> {
 export async function saveSchedule(s: Schedule): Promise<void> {
   const db = await getDB();
   await db.put("schedules", s, s.id);
-  await db.put("meta", { activeId: s.id }, "active");
+  // Add this schedule to the selection (cumulative-by-default).
+  const ids = await getSelectedIds();
+  if (!ids.includes(s.id)) {
+    await setSelectedIds([...ids, s.id]);
+  }
 }
 
 export async function listSchedules(): Promise<Schedule[]> {
@@ -45,27 +55,31 @@ export async function getSchedule(id: string): Promise<Schedule | undefined> {
   return db.get("schedules", id);
 }
 
-export async function getActiveSchedule(): Promise<Schedule | undefined> {
+export async function getSelectedIds(): Promise<string[]> {
   const db   = await getDB();
-  const meta = await db.get("meta", "active");
-  if (!meta?.activeId) return undefined;
-  return db.get("schedules", meta.activeId);
+  const meta = await db.get("meta", "selection");
+  return Array.isArray(meta?.selectedIds) ? meta!.selectedIds : [];
 }
 
-export async function setActiveSchedule(id: string): Promise<void> {
+export async function setSelectedIds(ids: string[]): Promise<void> {
   const db = await getDB();
-  await db.put("meta", { activeId: id }, "active");
+  await db.put("meta", { selectedIds: ids }, "selection");
+}
+
+export async function toggleSelected(id: string): Promise<void> {
+  const ids = await getSelectedIds();
+  await setSelectedIds(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
 }
 
 export async function deleteSchedule(id: string): Promise<void> {
   const db = await getDB();
   await db.delete("schedules", id);
-  const meta = await db.get("meta", "active");
-  if (meta?.activeId === id) await db.put("meta", { activeId: null }, "active");
+  const ids = await getSelectedIds();
+  if (ids.includes(id)) await setSelectedIds(ids.filter((x) => x !== id));
 }
 
 export async function clearAllSchedules(): Promise<void> {
   const db = await getDB();
   await db.clear("schedules");
-  await db.put("meta", { activeId: null }, "active");
+  await setSelectedIds([]);
 }

@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 const ragColors = { Red: "var(--danger)", Amber: "var(--warning)", Green: "var(--success)" } as const;
 
 export default function ProjectsPage() {
-  const { active, all, switchTo, loading } = useSchedule();
+  const { selectedIds, all, toggleSelected, loading } = useSchedule();
 
   if (loading) return <div className="text-center text-text-secondary py-20 text-sm">Loading…</div>;
   if (all.length === 0) return <EmptyState title="No imported schedules yet" />;
@@ -38,11 +38,11 @@ export default function ProjectsPage() {
         {all.map((s) => {
           const stats = computeStats(s);
           const rag   = ragFromStats(stats);
-          const isActive = active?.id === s.id;
+          const isActive = selectedIds.includes(s.id);
           return (
             <button
               key={s.id}
-              onClick={() => switchTo(s.id)}
+              onClick={() => toggleSelected(s.id)}
               className={`text-left bg-card border ${isActive ? "border-primary/40" : "border-border"} rounded-2xl p-5 hover:-translate-y-0.5 transition-all`}
             >
               <div className="flex items-start justify-between gap-3 mb-3">
@@ -75,7 +75,7 @@ export default function ProjectsPage() {
 
               {isActive && (
                 <div className="mt-3 flex items-center gap-1.5 text-[10px] text-primary font-semibold">
-                  <FileCheck2 size={11} /> ACTIVE
+                  <FileCheck2 size={11} /> ON DASHBOARD
                 </div>
               )}
             </button>

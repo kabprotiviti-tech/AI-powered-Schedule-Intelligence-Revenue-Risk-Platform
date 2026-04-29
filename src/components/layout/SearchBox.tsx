@@ -12,7 +12,9 @@ export function SearchBox() {
   const inputRef = useRef<HTMLInputElement>(null);
   const wrapRef  = useRef<HTMLDivElement>(null);
   const router   = useRouter();
-  const { active } = useSchedule();
+  const { selected, all } = useSchedule();
+  const pool = selected.length > 0 ? selected : all;
+  const totalActivities = pool.reduce((s, x) => s + x.activities.length, 0);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -36,9 +38,9 @@ export function SearchBox() {
   }, []);
 
   const results = useMemo(() => {
-    if (!active) return [];
+    if (pool.length === 0) return [];
     const term = q.trim().toLowerCase();
-    const acts = active.activities;
+    const acts = pool.flatMap((s) => s.activities);
     if (!term) return acts.slice(0, 8);
     return acts
       .filter((a) =>
@@ -46,7 +48,7 @@ export function SearchBox() {
         a.name.toLowerCase().includes(term),
       )
       .slice(0, 12);
-  }, [q, active]);
+  }, [q, pool]);
 
   useEffect(() => setActiveIdx(0), [q]);
 
@@ -64,7 +66,7 @@ export function SearchBox() {
     }
   };
 
-  const placeholder = active ? `Search ${active.activities.length.toLocaleString()} activities…` : "Import a schedule to search…";
+  const placeholder = pool.length > 0 ? `Search ${totalActivities.toLocaleString()} activities…` : "Import a schedule to search…";
 
   return (
     <div ref={wrapRef} className="relative flex-1 max-w-xs">
@@ -74,7 +76,7 @@ export function SearchBox() {
             setOpen(true);
             setTimeout(() => inputRef.current?.focus(), 0);
           }}
-          disabled={!active}
+          disabled={pool.length === 0}
           className="w-full flex items-center gap-2 px-3 py-1.5 bg-overlay/[0.04] border border-border rounded-xl text-sm text-text-secondary cursor-pointer hover:border-primary/40 hover:bg-overlay/[0.06] transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Search size={13} className="group-hover:text-primary transition-colors" />
@@ -108,7 +110,7 @@ export function SearchBox() {
         <div className="absolute left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-xl overflow-hidden z-50 animate-scale-in">
           {results.length === 0 ? (
             <div className="px-4 py-6 text-center text-xs text-text-secondary">
-              {active ? <>No activities match &ldquo;{q}&rdquo;</> : "Import a schedule first."}
+              {pool.length > 0 ? <>No activities match &ldquo;{q}&rdquo;</> : "Import a schedule first."}
             </div>
           ) : (
             <ul className="max-h-80 overflow-y-auto py-1">

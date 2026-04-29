@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ChevronRight, Search, X, ArrowUpRight } from "lucide-react";
 import { useSchedule } from "@/lib/schedule/ScheduleProvider";
-import { getAnalytics } from "@/lib/schedule/analytics";
+import { getPortfolio } from "@/lib/schedule/portfolio";
 import { EmptyState } from "@/components/ui/EmptyState";
 import type { ScheduleActivity } from "@/lib/schedule/types";
 
@@ -26,18 +26,22 @@ function ActivitiesView() {
   const sp = useSearchParams();
   const filterParam = (sp.get("filter") as Filter) ?? "all";
   const titleParam  = sp.get("title") ?? "";
-  const { active, loading } = useSchedule();
+  const { selected, all, loading } = useSchedule();
   const [q, setQ] = useState("");
 
   const data = useMemo(() => {
-    if (!active) return null;
-    const analytics = getAnalytics(active);
+    const pool = selected.length > 0 ? selected : all;
+    if (pool.length === 0) return null;
+    const portfolio = getPortfolio(pool);
+    const analytics = portfolio.analytics;
+    const allActs = pool.flatMap((s) => s.activities);
+
     const succsOf = new Map<string, number>();
-    for (const a of active.activities) {
+    for (const a of allActs) {
       for (const p of a.predecessors) succsOf.set(p.predId, (succsOf.get(p.predId) ?? 0) + 1);
     }
 
-    const filtered = active.activities.filter((a) => {
+    const filtered = allActs.filter((a) => {
       switch (filterParam) {
         case "critical":   return analytics.cpm.critical.has(a.id);
         case "negFloat":   return (analytics.cpm.totalFloat.get(a.id) ?? 0) < -0.01;
@@ -58,8 +62,11 @@ function ActivitiesView() {
   }, [active, filterParam]);
 
   if (loading) return <div className="text-center text-text-secondary py-20 text-sm">Loading…</div>;
-  if (!active) return <EmptyState />;
+  if (all.length === 0) return <EmptyState />;
   if (!data)   return null;
+  const pool = selected.length > 0 ? selected : all;
+  const totalActs = pool.reduce((s, x) => s + x.activities.length, 0);
+  const projectLabel = pool.length === 1 ? pool[0].project.name : `${pool.length} schedules`;
 
   const filterMeta: Record<Filter, FilterMeta> = {
     all:        { id: "all",        label: "All Activities" },
@@ -92,7 +99,7 @@ function ActivitiesView() {
       <div>
         <h1 className="text-2xl font-bold text-text-primary tracking-tight">{titleParam || meta.label}</h1>
         <p className="text-sm text-text-secondary mt-1">
-          {data.filtered.length.toLocaleString()} of {active.activities.length.toLocaleString()} activities · {active.project.name}
+          {data.filtered.length.toLocaleString()} of {totalActs.toLocaleString()} activities · {projectLabel}
         </p>
       </div>
 
@@ -156,7 +163,7 @@ function ActivitiesView() {
   );
 }
 
-function Row({ a, cpm }: { a: ScheduleActivity; cpm: ReturnType<typeof getAnalytics>["cpm"] }) {
+function Row({ a, cpm }: { a: ScheduleActivity; cpm: ReturnType<typeof getPortfolio>["analytics"]["cpm"] }) {
   const tf = cpm.totalFloat.get(a.id) ?? 0;
   const isCrit = cpm.critical.has(a.id);
   return (

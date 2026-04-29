@@ -7,39 +7,46 @@ import {
   ArrowUpRight, ArrowRight, ChevronRight,
 } from "lucide-react";
 import { useSchedule } from "@/lib/schedule/ScheduleProvider";
-import { getAnalytics } from "@/lib/schedule/analytics";
+import { getPortfolio } from "@/lib/schedule/portfolio";
 import { EmptyState } from "@/components/ui/EmptyState";
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { active, loading } = useSchedule();
+  const { all, loading } = useSchedule();
   const router = useRouter();
 
   const data = useMemo(() => {
-    if (!active) return null;
-    const a = active.activities.find((x) => x.id === id);
-    if (!a) return null;
-    const analytics = getAnalytics(active);
-    const tf = analytics.cpm.totalFloat.get(a.id) ?? null;
-    const ff = analytics.cpm.freeFloat.get(a.id) ?? null;
-    const isCrit = analytics.cpm.critical.has(a.id);
+    if (all.length === 0) return null;
+    // Find the activity across ALL imported schedules
+    let owningSchedule = null;
+    let activity = null;
+    for (const s of all) {
+      const found = s.activities.find((x) => x.id === id);
+      if (found) { owningSchedule = s; activity = found; break; }
+    }
+    if (!activity || !owningSchedule) return null;
 
-    const succs = active.activities.filter((x) => x.predecessors.some((p) => p.predId === a.id));
+    // Run analytics on the owning schedule (drill-down is per-schedule, not portfolio)
+    const portfolio = getPortfolio([owningSchedule]);
+    const analytics = portfolio.analytics;
 
-    // Which DCMA checks does this activity fail?
-    const failedChecks = analytics.dcma.checks.filter((c) => c.failingIds.includes(a.id));
+    const tf = analytics.cpm.totalFloat.get(activity.id) ?? null;
+    const ff = analytics.cpm.freeFloat.get(activity.id) ?? null;
+    const isCrit = analytics.cpm.critical.has(activity.id);
 
-    const baseVar = analytics.baseline.perActivity.find((v) => v.id === a.id);
+    const succs = owningSchedule.activities.filter((x) => x.predecessors.some((p) => p.predId === activity!.id));
+    const failedChecks = analytics.dcma.checks.filter((c) => c.failingIds.includes(activity!.id));
+    const baseVar = analytics.baseline.perActivity.find((v) => v.id === activity!.id);
 
-    return { activity: a, tf, ff, isCrit, succs, failedChecks, baseVar };
-  }, [active, id]);
+    return { activity, tf, ff, isCrit, succs, failedChecks, baseVar, owningSchedule };
+  }, [all, id]);
 
   if (loading) return <div className="text-center text-text-secondary py-20 text-sm">Loading…</div>;
-  if (!active)  return <EmptyState />;
+  if (all.length === 0)  return <EmptyState />;
   if (!data) return (
     <div className="max-w-2xl mx-auto py-12 text-center">
       <h2 className="text-lg font-bold text-text-primary mb-2">Activity not found</h2>
-      <p className="text-sm text-text-secondary mb-4">No activity with id <span className="font-mono">{id}</span> in {active.project.name}.</p>
+      <p className="text-sm text-text-secondary mb-4">No activity with id <span className="font-mono">{id}</span> in any imported schedule.</p>
       <Link href="/" className="text-xs text-primary hover:underline">Back to dashboard</Link>
     </div>
   );
@@ -48,7 +55,7 @@ export default function ActivityDetailPage() {
   const fmt = (iso?: string) => iso ? new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   const days = (h?: number | null) => h == null ? "—" : `${(h/8).toFixed(1)}d`;
 
-  const byId = new Map(active.activities.map((x) => [x.id, x]));
+  const byId = new Map(data.owningSchedule.activities.map((x) => [x.id, x]));
 
   return (
     <div className="max-w-[1200px] mx-auto space-y-6 pb-12">

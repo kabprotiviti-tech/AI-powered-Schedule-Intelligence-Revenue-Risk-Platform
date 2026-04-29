@@ -1,7 +1,7 @@
 "use client";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Upload, FileCheck2, AlertCircle, Loader2, ArrowRight, Trash2 } from "lucide-react";
+import { Upload, FileCheck2, AlertCircle, Loader2, ArrowRight, Trash2, Check } from "lucide-react";
 import { useSchedule } from "@/lib/schedule/ScheduleProvider";
 import { parseSchedule, detectFormat } from "@/lib/schedule/parsers";
 import type { Schedule } from "@/lib/schedule/types";
@@ -15,19 +15,26 @@ interface FileState {
 }
 
 export default function UploadPage() {
-  const { active, all, upload, switchTo, remove } = useSchedule();
+  const { selectedIds, all, upload, toggleSelected, remove } = useSchedule();
   const [drag, setDrag] = useState(false);
   const [pending, setPending] = useState<FileState | null>(null);
+  const [name, setName] = useState("");      // editable project name
   const router = useRouter();
+
+  // Whenever a fresh parse completes, prefill the name input with the parsed name
+  useEffect(() => {
+    if (pending?.status === "ready" && pending.schedule) {
+      setName(pending.schedule.project.name);
+    }
+  }, [pending?.status, pending?.schedule]);
 
   const handleFile = useCallback(async (file: File) => {
     setPending({ fileName: file.name, status: "parsing" });
-    // Yield once so the "Parsing…" state can paint before the main thread blocks
+    setName("");
     await new Promise((r) => setTimeout(r, 0));
     try {
       const text = await file.text();
       const format = detectFormat(text, file.name);
-      // Yield again before the heavy parse so the spinner can render
       await new Promise((r) => setTimeout(r, 0));
       const sched  = await parseSchedule(file);
       setPending({ fileName: file.name, status: "ready", format, schedule: sched });
@@ -36,7 +43,7 @@ export default function UploadPage() {
       setPending({
         fileName: file.name,
         status: "error",
-        error: e instanceof Error ? `${e.message}` : String(e),
+        error: e instanceof Error ? e.message : String(e),
       });
     }
   }, []);
@@ -50,10 +57,18 @@ export default function UploadPage() {
 
   const confirm = async () => {
     if (!pending?.schedule) return;
-    await upload(pending.schedule);
+    const finalName = name.trim() || pending.schedule.project.name;
+    const tagged: Schedule = {
+      ...pending.schedule,
+      project: { ...pending.schedule.project, name: finalName },
+    };
+    await upload(tagged);
     setPending(null);
+    setName("");
     router.push("/");
   };
+
+  const isSelected = (id: string) => selectedIds.includes(id);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-12">
@@ -61,6 +76,7 @@ export default function UploadPage() {
         <h1 className="text-2xl font-bold text-text-primary tracking-tight">Import Schedule</h1>
         <p className="text-sm text-text-secondary mt-1">
           Drop a Primavera P6 (.xer) or P6/MSP XML file. Native .mpp must be exported to XML first.
+          Multiple schedules can be selected at once — the dashboard shows cumulative analytics across all selected.
         </p>
       </div>
 
@@ -108,21 +124,37 @@ export default function UploadPage() {
                 )}
                 {pending.status === "error" && <span className="text-danger">{pending.error}</span>}
               </div>
+
+              {/* Editable project name */}
               {pending.status === "ready" && pending.schedule && (
-                <div className="mt-3 flex gap-2">
-                  <button
-                    onClick={confirm}
-                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-primary text-white font-medium hover:opacity-90 transition-opacity"
-                  >
-                    Import & set active
-                    <ArrowRight size={12} />
-                  </button>
-                  <button
-                    onClick={() => setPending(null)}
-                    className="text-xs px-3 py-1.5 rounded-lg border border-border text-text-secondary hover:text-text-primary"
-                  >
-                    Discard
-                  </button>
+                <div className="mt-4">
+                  <label className="block text-[11px] uppercase tracking-wider text-text-secondary font-semibold mb-1.5">
+                    Project name
+                  </label>
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={pending.schedule.project.name}
+                    className="w-full px-3 py-2 text-sm bg-overlay/[0.04] border border-border rounded-lg text-text-primary outline-none focus:border-primary/50"
+                  />
+                  <p className="text-[10px] text-text-secondary mt-1">
+                    Override the schedule&rsquo;s parsed project name (default: {pending.schedule.project.name}).
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={confirm}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-primary text-white font-medium hover:opacity-90 transition-opacity"
+                    >
+                      Import &amp; add to dashboard
+                      <ArrowRight size={12} />
+                    </button>
+                    <button
+                      onClick={() => { setPending(null); setName(""); }}
+                      className="text-xs px-3 py-1.5 rounded-lg border border-border text-text-secondary hover:text-text-primary"
+                    >
+                      Discard
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -130,22 +162,33 @@ export default function UploadPage() {
         </div>
       )}
 
-      {/* Imported schedules */}
+      {/* Imported schedules — multi-select */}
       {all.length > 0 && (
         <div className="bg-card border border-border rounded-2xl p-5">
-          <h2 className="text-sm font-semibold text-text-primary mb-4">Imported schedules</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-text-primary">Imported schedules</h2>
+            <span className="text-[11px] text-text-secondary">{selectedIds.length} of {all.length} selected</span>
+          </div>
           <ul className="divide-y divide-border">
             {all.map((s) => {
-              const isActive = active?.id === s.id;
+              const sel = isSelected(s.id);
               return (
                 <li key={s.id} className="py-3 flex items-center gap-3">
-                  <div className={`w-2 h-2 rounded-full ${isActive ? "bg-success" : "bg-border"}`} />
+                  <button
+                    onClick={() => toggleSelected(s.id)}
+                    className={`w-5 h-5 rounded border flex items-center justify-center transition-colors shrink-0 ${
+                      sel ? "bg-primary border-primary" : "bg-overlay/[0.04] border-border hover:border-primary/50"
+                    }`}
+                    aria-label={sel ? "Deselect" : "Select"}
+                  >
+                    {sel && <Check size={12} className="text-white" />}
+                  </button>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-text-primary truncate">
                       {s.project.name}
-                      {isActive && (
-                        <span className="ml-2 text-[10px] uppercase tracking-wider text-success font-semibold">
-                          Active
+                      {sel && (
+                        <span className="ml-2 text-[10px] uppercase tracking-wider text-primary font-semibold">
+                          On dashboard
                         </span>
                       )}
                     </div>
@@ -154,14 +197,6 @@ export default function UploadPage() {
                       imported {new Date(s.project.importedAt).toLocaleDateString()}
                     </div>
                   </div>
-                  {!isActive && (
-                    <button
-                      onClick={() => switchTo(s.id)}
-                      className="text-xs px-2.5 py-1 rounded-md border border-border text-text-secondary hover:text-text-primary hover:border-primary/40"
-                    >
-                      Activate
-                    </button>
-                  )}
                   <button
                     onClick={() => remove(s.id)}
                     className="text-text-secondary hover:text-danger p-1"

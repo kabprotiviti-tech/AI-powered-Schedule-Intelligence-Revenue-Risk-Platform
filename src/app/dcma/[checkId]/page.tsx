@@ -6,7 +6,7 @@ import {
   ChevronRight, ChevronLeft, ShieldCheck, CheckCircle2, AlertCircle, XCircle, MinusCircle, ArrowUpRight, Search, X,
 } from "lucide-react";
 import { useSchedule } from "@/lib/schedule/ScheduleProvider";
-import { getAnalytics } from "@/lib/schedule/analytics";
+import { getPortfolio } from "@/lib/schedule/portfolio";
 import { EmptyState } from "@/components/ui/EmptyState";
 import type { CheckStatus } from "@/lib/schedule/dcma";
 
@@ -25,22 +25,23 @@ const checkIcon: Record<CheckStatus, React.ElementType> = {
 
 export default function DCMACheckPage() {
   const { checkId } = useParams<{ checkId: string }>();
-  const { active, loading } = useSchedule();
+  const { selected, all, loading } = useSchedule();
   const [q, setQ] = useState("");
 
   const data = useMemo(() => {
-    if (!active) return null;
-    const analytics = getAnalytics(active);
-    const check = analytics.dcma.checks.find((c) => c.id === checkId);
+    const pool = selected.length > 0 ? selected : all;
+    if (pool.length === 0) return null;
+    const portfolio = getPortfolio(pool);
+    const check = portfolio.analytics.dcma.checks.find((c) => c.id === checkId);
     if (!check) return null;
-    const acts = check.failingIds
-      .map((id) => active.activities.find((a) => a.id === id))
-      .filter((a): a is NonNullable<typeof a> => !!a);
-    return { check, acts, analytics };
-  }, [active, checkId]);
+    const allActs = pool.flatMap((s) => s.activities);
+    const idSet = new Set(check.failingIds);
+    const acts = allActs.filter((a) => idSet.has(a.id));
+    return { check, acts, analytics: portfolio.analytics };
+  }, [selected, all, checkId]);
 
   if (loading) return <div className="text-center text-text-secondary py-20 text-sm">Loading…</div>;
-  if (!active)  return <EmptyState />;
+  if (all.length === 0)  return <EmptyState />;
   if (!data) return (
     <div className="max-w-2xl mx-auto py-12 text-center">
       <h2 className="text-lg font-bold text-text-primary mb-2">Check not found</h2>

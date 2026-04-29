@@ -19,7 +19,7 @@ const NAV = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { active, all } = useSchedule();
+  const { selected, all } = useSchedule();
 
   return (
     <aside className="w-56 flex-shrink-0 flex flex-col bg-surface border-r border-border relative">
@@ -98,12 +98,13 @@ export function Sidebar() {
             <span className="text-[10px] text-success font-medium uppercase tracking-wider">Live</span>
           </div>
           <div className="text-xs font-semibold text-text-primary truncate">
-            {active?.project.name ?? "No schedule"}
+            {selected.length === 0 ? "No schedule selected" :
+             selected.length === 1 ? selected[0].project.name :
+                                     `${selected.length} schedules`}
           </div>
           <div className="text-[11px] text-text-secondary mt-0.5">
-            {active
-              ? `${active.activities.length.toLocaleString()} activities · ${all.length} imported`
-              : "Import a schedule to begin"}
+            {all.length === 0 ? "Import a schedule to begin" :
+             `${selected.reduce((s, x) => s + x.activities.length, 0).toLocaleString()} activities · ${all.length} imported`}
           </div>
         </div>
       </div>
