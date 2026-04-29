@@ -128,11 +128,33 @@ function aggregateAnalytics(schedules: Schedule[]): ScheduleAnalytics {
     const totalAct = perSchedule.reduce((s, r) => s + r.s.activities.length, 0);
     const failingPct = totalAct === 0 ? 0 : (failingIds.length / totalAct) * 100;
     const ref = allFor[0]!;
+
+    // Aggregate numericValue properly per unit. Activity-weighted average for %s and ratios; sum for counts.
+    let numericValue: number | undefined;
+    if (ref.numericUnit === "%" || ref.numericUnit === "ratio") {
+      const num = allFor.reduce((s, c, i) => {
+        const w = perSchedule[i].s.activities.length;
+        return s + (c.numericValue ?? 0) * w;
+      }, 0);
+      const denom = perSchedule.reduce((s, r) => s + r.s.activities.length, 0);
+      numericValue = denom === 0 ? 0 : num / denom;
+    } else if (ref.numericUnit === "count") {
+      numericValue = allFor.reduce((s, c) => s + (c.numericValue ?? 0), 0);
+    }
+
+    // Display value
+    const display = ref.numericUnit === "%"     ? `${(numericValue ?? 0).toFixed(1)}%`
+                  : ref.numericUnit === "ratio" ? (numericValue ?? 0).toFixed(3)
+                  : ref.numericUnit === "count" ? `${numericValue ?? 0}`
+                  : ref.metricValue;
+
     return {
       id: ref.id, name: ref.name, description: ref.description, threshold: ref.threshold,
       status: worst,
       metricLabel: ref.metricLabel,
-      metricValue: `${failingIds.length} across ${perSchedule.length}`,
+      metricValue: display,
+      numericValue,
+      numericUnit: ref.numericUnit,
       failingPct,
       failingIds,
     };

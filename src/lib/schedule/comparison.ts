@@ -21,6 +21,7 @@ export interface MetricComparison {
   note: string;                  // one-line interpretation
   standardThreshold?: { value: number; label: string; passed: boolean }; // when a published standard sets a hard threshold
   standardSource?: string;       // citation, e.g. "DCMA 14-Pt §4"
+  drillTo?: string;              // route to drill into evidence (e.g. /dcma/REL_TYPES)
 }
 
 export interface ComparisonResult {
@@ -98,55 +99,58 @@ export function compareToBenchmark(
 ): ComparisonResult {
   const bench = getBenchmark(type, region);
 
-  // Source metric values from analytics
-  const dcmaScore = a.dcma.overallScore;
-  const cpPct     = (a.cpm.critical.size / Math.max(s.activities.length, 1)) * 100;
-  const highFloatPct = (() => {
-    const c = a.dcma.checks.find((x) => x.id === "HIGH_FLOAT");
-    return c?.failingPct ?? 0;
-  })();
-  const logicCheck = a.dcma.checks.find((x) => x.id === "LOGIC");
-  const logicCompliancePct = logicCheck ? 100 - logicCheck.failingPct : 100;
-  const fsCheck   = a.dcma.checks.find((x) => x.id === "REL_TYPES");
-  // metricValue like "94.2%" — parse it
-  const fsRelPct  = fsCheck ? parseFloat(fsCheck.metricValue) || 100 : 100;
-  const hardCstr  = a.dcma.checks.find((x) => x.id === "CONSTRAINTS");
-  const hardCstrPct = hardCstr?.failingPct ?? 0;
+  // Source metric values from analytics — use numericValue, never parse display strings.
+  const numeric = (id: string, fallback = 0) =>
+    a.dcma.checks.find((x) => x.id === id)?.numericValue ?? fallback;
+
+  const dcmaScore          = a.dcma.overallScore;
+  const cpPct              = (a.cpm.critical.size / Math.max(s.activities.length, 1)) * 100;
+  const highFloatPct       = a.dcma.checks.find((x) => x.id === "HIGH_FLOAT")?.failingPct ?? 0;
+  const logicCompliancePct = 100 - (a.dcma.checks.find((x) => x.id === "LOGIC")?.failingPct ?? 0);
+  const fsRelPct           = numeric("REL_TYPES", 100);
+  const hardCstrPct        = a.dcma.checks.find((x) => x.id === "CONSTRAINTS")?.failingPct ?? 0;
 
   const projDur = Math.max(1, a.stats.totalDurationDays);
   const slipPct = (a.baseline.projectFinishVarDays / projDur) * 100;
 
-  const cpliCheck = a.dcma.checks.find((x) => x.id === "CPLI");
-  const cpli      = cpliCheck ? parseFloat(cpliCheck.metricValue) || 1 : 1;
-  const beiCheck  = a.dcma.checks.find((x) => x.id === "BEI");
-  const bei       = beiCheck ? parseFloat(beiCheck.metricValue) || 1 : 1;
+  const cpli = numeric("CPLI", 1);
+  const bei  = numeric("BEI",  1);
 
   const rawMetrics: Omit<MetricComparison, "percentileRank" | "gapToMedian" | "gapToBest" | "verdict" | "note">[] = [
     { id: "dcma",   label: "DCMA Score",          yourValue: dcmaScore,        unit: "/100", bench: bench.dcmaScore,           higherIsBetter: true,
       standardSource: "DCMA 14-Pt Schedule Assessment (composite)",
-      standardThreshold: { value: 90, label: "≥ 90", passed: dcmaScore >= 90 } },
+      standardThreshold: { value: 90, label: "≥ 90", passed: dcmaScore >= 90 },
+      drillTo: "/dcma" },
     { id: "cpPct",  label: "Critical Path %",     yourValue: round1(cpPct),    unit: "%",    bench: bench.criticalPathPct,     higherIsBetter: false,
       standardSource: "GAO-16-89G best practice 7 (CP must exist & be coherent)",
-      standardThreshold: { value: 35, label: "≤ 35% (fragile if higher)", passed: cpPct <= 35 } },
+      standardThreshold: { value: 35, label: "≤ 35% (fragile if higher)", passed: cpPct <= 35 },
+      drillTo: "/activities?filter=critical&title=Critical%20Path" },
     { id: "high",   label: "High Float %",        yourValue: round1(highFloatPct), unit: "%",bench: bench.highFloatPct,        higherIsBetter: false,
       standardSource: "DCMA 14-Pt §6 (High Float)",
-      standardThreshold: { value: 5, label: "≤ 5%", passed: highFloatPct <= 5 } },
+      standardThreshold: { value: 5, label: "≤ 5%", passed: highFloatPct <= 5 },
+      drillTo: "/dcma/HIGH_FLOAT" },
     { id: "logic",  label: "Logic Compliance",    yourValue: round1(logicCompliancePct), unit: "%", bench: bench.logicCompliancePct, higherIsBetter: true,
       standardSource: "DCMA 14-Pt §1 (Logic) · GAO-16-89G BP 4",
-      standardThreshold: { value: 95, label: "≥ 95%", passed: logicCompliancePct >= 95 } },
+      standardThreshold: { value: 95, label: "≥ 95%", passed: logicCompliancePct >= 95 },
+      drillTo: "/dcma/LOGIC" },
     { id: "fs",     label: "FS Relationships",    yourValue: round1(fsRelPct), unit: "%",    bench: bench.fsRelationshipPct,   higherIsBetter: true,
       standardSource: "DCMA 14-Pt §4 (Relationship Types)",
-      standardThreshold: { value: 90, label: "≥ 90%", passed: fsRelPct >= 90 } },
+      standardThreshold: { value: 90, label: "≥ 90%", passed: fsRelPct >= 90 },
+      drillTo: "/dcma/REL_TYPES" },
     { id: "hard",   label: "Hard Constraints",    yourValue: round1(hardCstrPct), unit: "%", bench: bench.hardConstraintPct,   higherIsBetter: false,
       standardSource: "DCMA 14-Pt §5 (Hard Constraints)",
-      standardThreshold: { value: 5, label: "≤ 5%", passed: hardCstrPct <= 5 } },
-    { id: "slip",   label: "Schedule Slip",       yourValue: round1(slipPct),  unit: "%",    bench: bench.scheduleSlipPctOfDur,higherIsBetter: false },
+      standardThreshold: { value: 5, label: "≤ 5%", passed: hardCstrPct <= 5 },
+      drillTo: "/dcma/CONSTRAINTS" },
+    { id: "slip",   label: "Schedule Slip",       yourValue: round1(slipPct),  unit: "%",    bench: bench.scheduleSlipPctOfDur,higherIsBetter: false,
+      drillTo: "/activities?filter=delayed&title=Delayed%20Activities" },
     { id: "cpli",   label: "CPLI",                yourValue: round2(cpli),     unit: "",     bench: bench.cpli,                higherIsBetter: true,
       standardSource: "DCMA 14-Pt §13 (CPLI)",
-      standardThreshold: { value: 0.95, label: "≥ 0.95", passed: cpli >= 0.95 } },
+      standardThreshold: { value: 0.95, label: "≥ 0.95", passed: cpli >= 0.95 },
+      drillTo: "/dcma/CPLI" },
     { id: "bei",    label: "BEI",                 yourValue: round2(bei),      unit: "",     bench: bench.bei,                 higherIsBetter: true,
       standardSource: "DCMA 14-Pt §14 (BEI)",
-      standardThreshold: { value: 0.95, label: "≥ 0.95", passed: bei >= 0.95 } },
+      standardThreshold: { value: 0.95, label: "≥ 0.95", passed: bei >= 0.95 },
+      drillTo: "/dcma/BEI" },
   ];
 
   const metrics: MetricComparison[] = rawMetrics.map((m) => {

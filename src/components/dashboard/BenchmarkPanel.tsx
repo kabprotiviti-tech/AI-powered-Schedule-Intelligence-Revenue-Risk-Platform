@@ -1,8 +1,9 @@
 "use client";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   Globe, MapPin, Award, AlertTriangle, ChevronDown, BookOpen,
-  CheckCircle2, XCircle, Info,
+  CheckCircle2, XCircle, Info, ArrowUpRight,
 } from "lucide-react";
 import type { Schedule } from "@/lib/schedule/types";
 import type { ScheduleAnalytics } from "@/lib/schedule/analytics";
@@ -151,8 +152,8 @@ function StandardRow({ m }: { m: MetricComparison }) {
   const passed = m.standardThreshold.passed;
   const color = passed ? "text-success" : "text-danger";
   const Icon  = passed ? CheckCircle2 : XCircle;
-  return (
-    <div className="flex items-center gap-3 py-2 px-3 rounded-lg border border-border bg-overlay/[0.02]">
+  const inner = (
+    <>
       <Icon size={14} className={`${color} shrink-0`} />
       <div className="min-w-[140px] shrink-0">
         <div className="text-xs font-semibold text-text-primary">{m.label}</div>
@@ -169,14 +170,19 @@ function StandardRow({ m }: { m: MetricComparison }) {
       }`}>
         {passed ? "Pass" : "Fail"}
       </span>
-    </div>
+      {m.drillTo && <ArrowUpRight size={11} className="text-text-secondary shrink-0" />}
+    </>
   );
+  const cls = "flex items-center gap-3 py-2 px-3 rounded-lg border border-border bg-overlay/[0.02] transition-colors";
+  return m.drillTo
+    ? <Link href={m.drillTo} className={`${cls} hover:bg-overlay/[0.04] hover:border-primary/30 group cursor-pointer`}>{inner}</Link>
+    : <div className={cls}>{inner}</div>;
 }
 
 function PeerRow({ m }: { m: MetricComparison }) {
   const v = verdictStyle[m.verdict];
-  return (
-    <div className="flex items-center gap-3 py-2 px-3 rounded-lg border border-border bg-overlay/[0.02]">
+  const inner = (
+    <>
       <div className="min-w-[140px] shrink-0">
         <div className="text-xs font-semibold text-text-primary">{m.label}</div>
         <div className="text-[10px] text-text-secondary">
@@ -198,8 +204,13 @@ function PeerRow({ m }: { m: MetricComparison }) {
         {v.label}
       </span>
       <span className="font-mono text-xs text-text-secondary w-10 text-right shrink-0">P{m.percentileRank}</span>
-    </div>
+      {m.drillTo && <ArrowUpRight size={11} className="text-text-secondary shrink-0" />}
+    </>
   );
+  const cls = "flex items-center gap-3 py-2 px-3 rounded-lg border border-border bg-overlay/[0.02] transition-colors";
+  return m.drillTo
+    ? <Link href={m.drillTo} className={`${cls} hover:bg-overlay/[0.04] hover:border-primary/30 cursor-pointer`}>{inner}</Link>
+    : <div className={cls}>{inner}</div>;
 }
 
 function Selector<T extends string>({

@@ -25,7 +25,9 @@ export interface DCMACheck {
   threshold:  string;
   status:     CheckStatus;
   metricLabel:string;
-  metricValue:string;
+  metricValue:string;        // human display only — never parse this
+  numericValue?: number;     // canonical numeric value for comparison/charting
+  numericUnit?: string;      // "%", "ratio", "count", ""
   failingPct: number;        // 0..100
   failingIds: string[];
 }
@@ -72,6 +74,7 @@ function logicCheck(s: Schedule): DCMACheck {
     status: statusFromPct(pct, 5, 10),
     metricLabel: "Activities missing both pred & succ",
     metricValue: `${failing.length} of ${candidates.length}`,
+    numericValue: pct, numericUnit: "%",
     failingPct: pct,
     failingIds: failing.map((a) => a.id),
   };
@@ -96,6 +99,7 @@ function leadsCheck(s: Schedule): DCMACheck {
     status: failing.size === 0 ? "pass" : pct < 5 ? "warn" : "fail",
     metricLabel: "Activities with negative lag",
     metricValue: `${failing.size}`,
+    numericValue: failing.size, numericUnit: "count",
     failingPct: pct,
     failingIds: Array.from(failing),
   };
@@ -123,6 +127,7 @@ function lagsCheck(s: Schedule): DCMACheck {
     status: statusFromPct(pct, 5, 10),
     metricLabel: "Relationships with positive lag",
     metricValue: `${withLag} of ${total} (${pct.toFixed(1)}%)`,
+    numericValue: pct, numericUnit: "%",
     failingPct: pct,
     failingIds: Array.from(failing),
   };
@@ -149,6 +154,7 @@ function relTypesCheck(s: Schedule): DCMACheck {
     status: fsPct >= 90 ? "pass" : fsPct >= 80 ? "warn" : "fail",
     metricLabel: "FS relationships",
     metricValue: `${fsPct.toFixed(1)}%`,
+    numericValue: fsPct, numericUnit: "%",
     failingPct,
     failingIds: Array.from(nonFsActivities),
   };
@@ -167,6 +173,7 @@ function constraintsCheck(s: Schedule): DCMACheck {
     status: statusFromPct(pct, 5, 10),
     metricLabel: "Activities with hard constraints",
     metricValue: `${failing.length}`,
+    numericValue: pct, numericUnit: "%",
     failingPct: pct,
     failingIds: failing.map((a) => a.id),
   };
@@ -192,6 +199,7 @@ function highFloatCheck(s: Schedule, cpm: CPMResult): DCMACheck {
     status: statusFromPct(pct, 5, 10),
     metricLabel: "Activities with total float > 44d",
     metricValue: `${failing.length}`,
+    numericValue: pct, numericUnit: "%",
     failingPct: pct,
     failingIds: failing,
   };
@@ -214,6 +222,7 @@ function negativeFloatCheck(s: Schedule, cpm: CPMResult): DCMACheck {
     status: failing.length === 0 ? "pass" : pct < 1 ? "warn" : "fail",
     metricLabel: "Activities with negative total float",
     metricValue: `${failing.length}`,
+    numericValue: failing.length, numericUnit: "count",
     failingPct: pct,
     failingIds: failing,
   };
@@ -233,6 +242,7 @@ function highDurationCheck(s: Schedule): DCMACheck {
     status: statusFromPct(pct, 5, 10),
     metricLabel: "Activities with duration > 44d",
     metricValue: `${failing.length} of ${candidates.length}`,
+    numericValue: pct, numericUnit: "%",
     failingPct: pct,
     failingIds: failing.map((a) => a.id),
   };
@@ -256,6 +266,7 @@ function invalidDatesCheck(s: Schedule): DCMACheck {
     status: failing.length === 0 ? "pass" : pct < 2 ? "warn" : "fail",
     metricLabel: "Activities with invalid dates",
     metricValue: `${failing.length}`,
+    numericValue: failing.length, numericUnit: "count",
     failingPct: pct,
     failingIds: failing,
   };
@@ -288,6 +299,7 @@ function resourcesCheck(s: Schedule): DCMACheck {
     status: pct < 20 ? "pass" : pct < 40 ? "warn" : "fail",
     metricLabel: "Activities without responsible party",
     metricValue: `${failing.length}`,
+    numericValue: pct, numericUnit: "%",
     failingPct: pct,
     failingIds: failing.map((a) => a.id),
   };
@@ -311,6 +323,7 @@ function missedTasksCheck(s: Schedule): DCMACheck {
     status: statusFromPct(pct, 5, 10),
     metricLabel: "Slipped activities",
     metricValue: `${failing.length}`,
+    numericValue: failing.length, numericUnit: "count",
     failingPct: pct,
     failingIds: failing,
   };
@@ -329,6 +342,7 @@ function criticalPathTestCheck(s: Schedule, cpm: CPMResult): DCMACheck {
     status,
     metricLabel: "Activities on the critical path",
     metricValue: `${critical.size}`,
+    numericValue: critical.size, numericUnit: "count",
     failingPct: critical.size === 0 ? 100 : 0,
     failingIds: [],
   };
@@ -357,6 +371,7 @@ function cpliCheck(s: Schedule, cpm: CPMResult): DCMACheck {
     status: cpli >= 0.95 ? "pass" : cpli >= 0.90 ? "warn" : "fail",
     metricLabel: "CPLI",
     metricValue: cpli.toFixed(3),
+    numericValue: cpli, numericUnit: "ratio",
     failingPct: cpli >= 0.95 ? 0 : 100 - cpli * 100,
     failingIds: [],
   };
@@ -379,6 +394,7 @@ function beiCheck(s: Schedule): DCMACheck {
     status: bei >= 0.95 ? "pass" : bei >= 0.90 ? "warn" : "fail",
     metricLabel: "BEI",
     metricValue: bei.toFixed(3),
+    numericValue: bei, numericUnit: "ratio",
     failingPct: bei >= 0.95 ? 0 : 100 - bei * 100,
     failingIds: [],
   };

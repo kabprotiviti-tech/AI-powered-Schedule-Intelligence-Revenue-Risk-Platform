@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { Check, Plus, Layers } from "lucide-react";
+import { Check, Plus, Layers, GitCompare } from "lucide-react";
 import { useSchedule } from "@/lib/schedule/ScheduleProvider";
 
 export function SchedulePicker() {
@@ -30,6 +30,15 @@ export function SchedulePicker() {
           >
             Clear
           </button>
+          {all.length >= 2 && (
+            <Link
+              href="/compare"
+              className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-border text-text-secondary hover:text-text-primary hover:border-primary/40"
+              title="Compare schedules side-by-side"
+            >
+              <GitCompare size={11} /> Compare
+            </Link>
+          )}
           <Link
             href="/upload"
             className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20"
