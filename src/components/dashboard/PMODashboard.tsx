@@ -7,6 +7,7 @@ import {
 import type { Schedule } from "@/lib/schedule/types";
 import type { ScheduleAnalytics } from "@/lib/schedule/analytics";
 import type { CheckStatus } from "@/lib/schedule/dcma";
+import { BenchmarkPanel } from "./BenchmarkPanel";
 
 const checkBadge: Record<CheckStatus, string> = {
   pass: "bg-success/15 text-success border-success/30",
@@ -25,10 +26,10 @@ export function PMODashboard({ schedule, analytics }: { schedule: Schedule; anal
   const { stats, cpm, dcma, baseline } = analytics;
 
   const cards = [
-    { label: "Activities",   value: stats.totalActivities, hint: `${stats.completed} done · ${stats.inProgress} in-progress` },
-    { label: "DCMA Score",   value: `${dcma.overallScore}/100`, hint: `${dcma.failCount} failing checks`, danger: dcma.failCount > 3 },
-    { label: "% Complete",   value: `${stats.pctComplete.toFixed(1)}%`, hint: "duration-weighted" },
-    { label: "Schedule Slip",value: `${baseline.projectFinishVarDays >= 0 ? "+" : ""}${baseline.projectFinishVarDays}d`, hint: "vs baseline", danger: baseline.projectFinishVarDays > 7 },
+    { label: "Activities",   value: stats.totalActivities, hint: `${stats.completed} done · ${stats.inProgress} in-progress`, href: "/activities?filter=all&title=All%20Activities" },
+    { label: "DCMA Score",   value: `${dcma.overallScore}/100`, hint: `${dcma.failCount} failing checks`, danger: dcma.failCount > 3, href: "/dcma/CP_TEST" },
+    { label: "% Complete",   value: `${stats.pctComplete.toFixed(1)}%`, hint: "duration-weighted",   href: "/activities?filter=inProgress&title=In%20Progress" },
+    { label: "Schedule Slip",value: `${baseline.projectFinishVarDays >= 0 ? "+" : ""}${baseline.projectFinishVarDays}d`, hint: "vs baseline", danger: baseline.projectFinishVarDays > 7, href: "/activities?filter=delayed&title=Delayed%20Activities" },
   ];
 
   const worst = baseline.worstSlippages
@@ -42,21 +43,26 @@ export function PMODashboard({ schedule, analytics }: { schedule: Schedule; anal
 
   return (
     <div className="space-y-6">
-      {/* 4-card KPI strip */}
+      {/* 4-card KPI strip — all clickable */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {cards.map((c) => (
-          <div
+          <Link
             key={c.label}
-            className={`bg-card border ${"danger" in c && c.danger ? "border-danger/40" : "border-border"} rounded-2xl p-5 hover:-translate-y-0.5 transition-transform`}
+            href={c.href}
+            className={`block bg-card border ${"danger" in c && c.danger ? "border-danger/40" : "border-border"} rounded-2xl p-5 hover:-translate-y-0.5 transition-transform`}
           >
             <div className="text-[11px] uppercase tracking-wider text-text-secondary font-semibold mb-2">{c.label}</div>
             <div className={`text-3xl font-bold font-mono ${"danger" in c && c.danger ? "text-danger" : "text-text-primary"}`}>
               {c.value}
             </div>
             <div className="text-[11px] text-text-secondary mt-2">{c.hint}</div>
-          </div>
+          </Link>
         ))}
       </div>
+
+      {/* Benchmark intelligence */}
+      <BenchmarkPanel schedule={schedule} analytics={analytics} />
+
 
       {/* Activity status distribution */}
       <div className="bg-card border border-border rounded-2xl p-5">
@@ -74,14 +80,14 @@ export function PMODashboard({ schedule, analytics }: { schedule: Schedule; anal
         </div>
         <div className="grid grid-cols-3 gap-3">
           {[
-            { label: "Completed",   count: stats.completed,  bg: "bg-success/8 border-success/20", color: "text-success" },
-            { label: "In Progress", count: stats.inProgress, bg: "bg-primary/8 border-primary/20", color: "text-primary" },
-            { label: "Not Started", count: stats.notStarted, bg: "bg-overlay/[0.03] border-border", color: "text-text-secondary" },
+            { label: "Completed",   count: stats.completed,  bg: "bg-success/8 border-success/20", color: "text-success", href: "/activities?filter=completed&title=Completed%20Activities" },
+            { label: "In Progress", count: stats.inProgress, bg: "bg-primary/8 border-primary/20", color: "text-primary", href: "/activities?filter=inProgress&title=In%20Progress" },
+            { label: "Not Started", count: stats.notStarted, bg: "bg-overlay/[0.03] border-border", color: "text-text-secondary", href: "/activities?filter=notStarted&title=Not%20Started" },
           ].map((row) => (
-            <div key={row.label} className={`flex items-center justify-between rounded-xl border px-4 py-3 ${row.bg}`}>
+            <Link key={row.label} href={row.href} className={`flex items-center justify-between rounded-xl border px-4 py-3 hover:-translate-y-0.5 transition-transform ${row.bg}`}>
               <div className="text-xs font-semibold text-text-primary">{row.label}</div>
               <div className={`text-2xl font-bold font-mono ${row.color}`}>{row.count}</div>
-            </div>
+            </Link>
           ))}
         </div>
       </div>

@@ -4,6 +4,7 @@ import { TrendingDown, AlertTriangle, ShieldCheck, Target, ArrowRight } from "lu
 import type { Schedule } from "@/lib/schedule/types";
 import type { ScheduleAnalytics } from "@/lib/schedule/analytics";
 import { ragFromStats } from "@/lib/schedule/stats";
+import { BenchmarkPanel } from "./BenchmarkPanel";
 
 const ragColors = { Red: "var(--danger)", Amber: "var(--warning)", Green: "var(--success)" } as const;
 
@@ -60,15 +61,17 @@ export function CEODashboard({ schedule, analytics }: { schedule: Schedule; anal
 
   return (
     <div className="space-y-8">
-      {/* Three hero numbers */}
+      {/* Three hero numbers — all clickable */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         <Hero
+          href="/activities?filter=delayed&title=Delayed%20Activities"
           label="Schedule Slip"
           value={`${baseline.projectFinishVarDays >= 0 ? "+" : ""}${baseline.projectFinishVarDays}d`}
-          subtitle={baseline.hasBaseline ? "vs baseline finish" : "no baseline imported"}
+          subtitle={baseline.hasBaseline ? "vs baseline · click for delayed activities" : "no baseline imported"}
           tone={baseline.projectFinishVarDays > 7 ? "danger" : baseline.projectFinishVarDays > 0 ? "warning" : "success"}
         />
         <Hero
+          href="/dcma/CP_TEST"
           label="DCMA Score"
           value={`${dcma.overallScore}`}
           suffix="/100"
@@ -76,12 +79,17 @@ export function CEODashboard({ schedule, analytics }: { schedule: Schedule; anal
           tone={dcma.overallScore >= 90 ? "success" : dcma.overallScore >= 70 ? "warning" : "danger"}
         />
         <Hero
+          href="/activities?filter=critical&title=Critical%20Path"
           label="Critical Path"
           value={`${cpm.critical.size}`}
           subtitle={`of ${stats.totalActivities} activities · ${stats.pctComplete.toFixed(0)}% complete`}
           tone={cpm.critical.size > stats.totalActivities * 0.3 ? "warning" : "neutral"}
         />
       </div>
+
+      {/* Benchmark intelligence */}
+      <BenchmarkPanel schedule={schedule} analytics={analytics} compact />
+
 
       {/* What needs attention */}
       <div className="bg-card border border-border rounded-2xl p-6">
@@ -135,25 +143,28 @@ export function CEODashboard({ schedule, analytics }: { schedule: Schedule; anal
 }
 
 function Hero({
-  label, value, suffix, subtitle, tone,
+  label, value, suffix, subtitle, tone, href,
 }: {
   label: string;
   value: string | number;
   suffix?: string;
   subtitle: string;
   tone: "danger" | "warning" | "success" | "neutral";
+  href?: string;
 }) {
   const border = tone === "danger" ? "border-danger/40" : tone === "warning" ? "border-warning/40" : tone === "success" ? "border-success/40" : "border-border";
   const text   = tone === "danger" ? "text-danger"      : tone === "warning" ? "text-warning"      : tone === "success" ? "text-success"      : "text-text-primary";
   const glow   = tone === "danger" ? "glow-red"         : tone === "warning" ? "glow-amber"        : "";
-  return (
-    <div className={`bg-card border ${border} ${glow} rounded-2xl p-6 hover:-translate-y-0.5 transition-transform`}>
+  const inner = (
+    <>
       <div className="text-[11px] uppercase tracking-wider text-text-secondary font-semibold mb-3">{label}</div>
       <div className="flex items-baseline gap-1.5">
         <span className={`text-5xl font-bold font-mono ${text}`}>{value}</span>
         {suffix && <span className="text-lg text-text-secondary font-medium">{suffix}</span>}
       </div>
       <div className="text-xs text-text-secondary mt-3">{subtitle}</div>
-    </div>
+    </>
   );
+  const cls = `bg-card border ${border} ${glow} rounded-2xl p-6 hover:-translate-y-0.5 transition-transform block`;
+  return href ? <Link href={href} className={cls}>{inner}</Link> : <div className={cls}>{inner}</div>;
 }

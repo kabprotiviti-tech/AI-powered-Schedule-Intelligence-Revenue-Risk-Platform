@@ -5,6 +5,7 @@ import { TopNav } from "@/components/layout/TopNav";
 import { PersonaProvider } from "@/components/layout/PersonaContext";
 import { ThemeProvider } from "@/components/layout/ThemeContext";
 import { ScheduleProvider } from "@/lib/schedule/ScheduleProvider";
+import { BenchmarkProvider } from "@/lib/schedule/BenchmarkContext";
 
 export const metadata: Metadata = {
   title: "NEXUS — Schedule Intelligence & Revenue Risk Platform",
@@ -17,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="bg-canvas text-text-primary antialiased theme-transition">
         <ThemeProvider>
         <ScheduleProvider>
+        <BenchmarkProvider>
         <PersonaProvider>
           <div className="flex h-screen overflow-hidden">
             <Sidebar />
@@ -28,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </div>
         </PersonaProvider>
+        </BenchmarkProvider>
         </ScheduleProvider>
         </ThemeProvider>
       </body>

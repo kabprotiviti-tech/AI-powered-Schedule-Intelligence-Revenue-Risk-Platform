@@ -8,6 +8,7 @@ import {
 import type { Schedule } from "@/lib/schedule/types";
 import type { ScheduleAnalytics } from "@/lib/schedule/analytics";
 import type { CheckStatus } from "@/lib/schedule/dcma";
+import { BenchmarkPanel } from "./BenchmarkPanel";
 
 const checkBadge: Record<CheckStatus, string> = {
   pass: "bg-success/15 text-success border-success/30",
@@ -48,10 +49,10 @@ export function PlannerDashboard({ schedule, analytics }: { schedule: Schedule; 
   const maxBucket = Math.max(1, ...Object.values(buckets));
 
   const cards = [
-    { label: "Critical",       value: cpm.critical.size, hint: `${((cpm.critical.size / Math.max(stats.totalActivities,1))*100).toFixed(1)}% of activities`, danger: cpm.critical.size > 0 },
-    { label: "Negative Float", value: negFloat,          hint: "logical impossibility",     danger: negFloat > 0 },
-    { label: "Logic Issues",   value: logic,             hint: "missing pred/succ",         danger: logic > 0 },
-    { label: "Slipped Tasks",  value: missed,            hint: "baseline finish in past",   danger: missed > 0 },
+    { label: "Critical",       value: cpm.critical.size, hint: `${((cpm.critical.size / Math.max(stats.totalActivities,1))*100).toFixed(1)}% of activities`, danger: cpm.critical.size > 0, href: "/activities?filter=critical&title=Critical%20Path" },
+    { label: "Negative Float", value: negFloat,          hint: "logical impossibility",     danger: negFloat > 0,                                            href: "/activities?filter=negFloat&title=Negative%20Float" },
+    { label: "Logic Issues",   value: logic,             hint: "missing pred/succ",         danger: logic > 0,                                                href: "/dcma/LOGIC" },
+    { label: "Slipped Tasks",  value: missed,            hint: "baseline finish in past",   danger: missed > 0,                                               href: "/dcma/MISSED" },
   ];
 
   // Top 15 critical activities, sorted by lowest float (most critical first)
@@ -69,21 +70,26 @@ export function PlannerDashboard({ schedule, analytics }: { schedule: Schedule; 
 
   return (
     <div className="space-y-6">
-      {/* 4-card KPI strip — float-focused */}
+      {/* 4-card KPI strip — float-focused, all clickable */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {cards.map((c) => (
-          <div
+          <Link
             key={c.label}
-            className={`bg-card border ${c.danger ? "border-danger/40" : "border-border"} rounded-2xl p-5 hover:-translate-y-0.5 transition-transform`}
+            href={c.href}
+            className={`block bg-card border ${c.danger ? "border-danger/40" : "border-border"} rounded-2xl p-5 hover:-translate-y-0.5 transition-transform`}
           >
             <div className="text-[11px] uppercase tracking-wider text-text-secondary font-semibold mb-2">{c.label}</div>
             <div className={`text-3xl font-bold font-mono ${c.danger ? "text-danger" : "text-text-primary"}`}>
               {c.value}
             </div>
             <div className="text-[11px] text-text-secondary mt-2">{c.hint}</div>
-          </div>
+          </Link>
         ))}
       </div>
+
+      {/* Benchmark intelligence */}
+      <BenchmarkPanel schedule={schedule} analytics={analytics} />
+
 
       {/* Float distribution */}
       <div className="bg-card border border-border rounded-2xl p-5">
