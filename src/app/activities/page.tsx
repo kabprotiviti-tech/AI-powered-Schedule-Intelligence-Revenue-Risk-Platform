@@ -59,7 +59,7 @@ function ActivitiesView() {
     });
 
     return { analytics, filtered };
-  }, [active, filterParam]);
+  }, [selected, all, filterParam]);
 
   if (loading) return <div className="text-center text-text-secondary py-20 text-sm">Loading…</div>;
   if (all.length === 0) return <EmptyState />;
