@@ -9,6 +9,7 @@ import type { Schedule } from "@/lib/schedule/types";
 import type { ScheduleAnalytics } from "@/lib/schedule/analytics";
 import type { CheckStatus } from "@/lib/schedule/dcma";
 import { BenchmarkPanel } from "./BenchmarkPanel";
+import { AchievabilityPanel } from "./AchievabilityPanel";
 
 const checkBadge: Record<CheckStatus, string> = {
   pass: "bg-success/15 text-success border-success/30",
@@ -86,6 +87,9 @@ export function PlannerDashboard({ schedule, analytics }: { schedule: Schedule; 
           </Link>
         ))}
       </div>
+
+      {/* Achievability — most useful for planners since it lists problem activities with reasons */}
+      <AchievabilityPanel schedule={schedule} achievability={analytics.achievability} />
 
       {/* Benchmark intelligence */}
       <BenchmarkPanel schedule={schedule} analytics={analytics} />

@@ -19,6 +19,8 @@ export interface MetricComparison {
   gapToBest: number;             // your - best
   verdict: Verdict;
   note: string;                  // one-line interpretation
+  standardThreshold?: { value: number; label: string; passed: boolean }; // when a published standard sets a hard threshold
+  standardSource?: string;       // citation, e.g. "DCMA 14-Pt §4"
 }
 
 export interface ComparisonResult {
@@ -120,15 +122,31 @@ export function compareToBenchmark(
   const bei       = beiCheck ? parseFloat(beiCheck.metricValue) || 1 : 1;
 
   const rawMetrics: Omit<MetricComparison, "percentileRank" | "gapToMedian" | "gapToBest" | "verdict" | "note">[] = [
-    { id: "dcma",   label: "DCMA Score",          yourValue: dcmaScore,        unit: "/100", bench: bench.dcmaScore,           higherIsBetter: true  },
-    { id: "cpPct",  label: "Critical Path %",     yourValue: round1(cpPct),    unit: "%",    bench: bench.criticalPathPct,     higherIsBetter: false },
-    { id: "high",   label: "High Float %",        yourValue: round1(highFloatPct), unit: "%",bench: bench.highFloatPct,        higherIsBetter: false },
-    { id: "logic",  label: "Logic Compliance",    yourValue: round1(logicCompliancePct), unit: "%", bench: bench.logicCompliancePct, higherIsBetter: true  },
-    { id: "fs",     label: "FS Relationships",    yourValue: round1(fsRelPct), unit: "%",    bench: bench.fsRelationshipPct,   higherIsBetter: true  },
-    { id: "hard",   label: "Hard Constraints",    yourValue: round1(hardCstrPct), unit: "%", bench: bench.hardConstraintPct,   higherIsBetter: false },
+    { id: "dcma",   label: "DCMA Score",          yourValue: dcmaScore,        unit: "/100", bench: bench.dcmaScore,           higherIsBetter: true,
+      standardSource: "DCMA 14-Pt Schedule Assessment (composite)",
+      standardThreshold: { value: 90, label: "≥ 90", passed: dcmaScore >= 90 } },
+    { id: "cpPct",  label: "Critical Path %",     yourValue: round1(cpPct),    unit: "%",    bench: bench.criticalPathPct,     higherIsBetter: false,
+      standardSource: "GAO-16-89G best practice 7 (CP must exist & be coherent)",
+      standardThreshold: { value: 35, label: "≤ 35% (fragile if higher)", passed: cpPct <= 35 } },
+    { id: "high",   label: "High Float %",        yourValue: round1(highFloatPct), unit: "%",bench: bench.highFloatPct,        higherIsBetter: false,
+      standardSource: "DCMA 14-Pt §6 (High Float)",
+      standardThreshold: { value: 5, label: "≤ 5%", passed: highFloatPct <= 5 } },
+    { id: "logic",  label: "Logic Compliance",    yourValue: round1(logicCompliancePct), unit: "%", bench: bench.logicCompliancePct, higherIsBetter: true,
+      standardSource: "DCMA 14-Pt §1 (Logic) · GAO-16-89G BP 4",
+      standardThreshold: { value: 95, label: "≥ 95%", passed: logicCompliancePct >= 95 } },
+    { id: "fs",     label: "FS Relationships",    yourValue: round1(fsRelPct), unit: "%",    bench: bench.fsRelationshipPct,   higherIsBetter: true,
+      standardSource: "DCMA 14-Pt §4 (Relationship Types)",
+      standardThreshold: { value: 90, label: "≥ 90%", passed: fsRelPct >= 90 } },
+    { id: "hard",   label: "Hard Constraints",    yourValue: round1(hardCstrPct), unit: "%", bench: bench.hardConstraintPct,   higherIsBetter: false,
+      standardSource: "DCMA 14-Pt §5 (Hard Constraints)",
+      standardThreshold: { value: 5, label: "≤ 5%", passed: hardCstrPct <= 5 } },
     { id: "slip",   label: "Schedule Slip",       yourValue: round1(slipPct),  unit: "%",    bench: bench.scheduleSlipPctOfDur,higherIsBetter: false },
-    { id: "cpli",   label: "CPLI",                yourValue: round2(cpli),     unit: "",     bench: bench.cpli,                higherIsBetter: true  },
-    { id: "bei",    label: "BEI",                 yourValue: round2(bei),      unit: "",     bench: bench.bei,                 higherIsBetter: true  },
+    { id: "cpli",   label: "CPLI",                yourValue: round2(cpli),     unit: "",     bench: bench.cpli,                higherIsBetter: true,
+      standardSource: "DCMA 14-Pt §13 (CPLI)",
+      standardThreshold: { value: 0.95, label: "≥ 0.95", passed: cpli >= 0.95 } },
+    { id: "bei",    label: "BEI",                 yourValue: round2(bei),      unit: "",     bench: bench.bei,                 higherIsBetter: true,
+      standardSource: "DCMA 14-Pt §14 (BEI)",
+      standardThreshold: { value: 0.95, label: "≥ 0.95", passed: bei >= 0.95 } },
   ];
 
   const metrics: MetricComparison[] = rawMetrics.map((m) => {

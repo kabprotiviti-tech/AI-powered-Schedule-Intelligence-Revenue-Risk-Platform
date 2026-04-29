@@ -19,6 +19,7 @@ import { runCPM, type CPMResult }              from "./cpm";
 import { runDCMA, type DCMAResult, type DCMACheck, type CheckStatus } from "./dcma";
 import { runBaseline, type BaselineVariance, type ActivityVariance } from "./baseline";
 import { computeStats, type PortfolioStats }   from "./stats";
+import { runAchievability, type AchievabilityResult } from "./achievability";
 import type { ScheduleAnalytics } from "./analytics";
 
 // ── Combined schedule (purely synthetic — never persisted) ──────────────────
@@ -183,7 +184,79 @@ function aggregateAnalytics(schedules: Schedule[]): ScheduleAnalytics {
     baselineSlipDays:  baseline.projectFinishVarDays,
   };
 
-  return { stats, cpm, dcma, baseline };
+  // Achievability: aggregate per-schedule. Overall = activity-weighted baseline preparedness.
+  // OnTimeDelivery probability = activity-weighted average. Problem activities = union, top 20 across.
+  const totalActAch = perSchedule.reduce((s, r) => s + r.s.activities.length, 0) || 1;
+  const ach = perSchedule.map((r) => runAchievability(r.s, r.cpm, r.dcma, r.baseline));
+  const overallPrep = Math.round(
+    ach.reduce((s, a, i) => s + a.baselinePreparedness.overall * perSchedule[i].s.activities.length, 0) / totalActAch,
+  );
+  const probOnTime = Math.round(
+    ach.reduce((s, a, i) => s + a.onTimeDelivery.probability * perSchedule[i].s.activities.length, 0) / totalActAch,
+  );
+
+  // Aggregate problem activities: union top-20 by severity
+  const SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3 } as const;
+  const allProblems = ach.flatMap((a) => a.problemActivities.top);
+  const totalProblems = ach.reduce((s, a) => s + a.problemActivities.total, 0);
+  const bySeverity   = { critical: 0, high: 0, medium: 0, low: 0 } as Record<"critical"|"high"|"medium"|"low", number>;
+  const byReason     = ach.reduce((acc, a) => {
+    for (const k of Object.keys(a.problemActivities.byReason) as (keyof typeof a.problemActivities.byReason)[]) {
+      acc[k] = (acc[k] ?? 0) + a.problemActivities.byReason[k];
+    }
+    return acc;
+  }, {} as Record<keyof (typeof ach)[number]["problemActivities"]["byReason"], number>);
+  for (const a of ach) {
+    bySeverity.critical += a.problemActivities.bySeverity.critical;
+    bySeverity.high     += a.problemActivities.bySeverity.high;
+    bySeverity.medium   += a.problemActivities.bySeverity.medium;
+    bySeverity.low      += a.problemActivities.bySeverity.low;
+  }
+  const topProblems = [...allProblems]
+    .sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity])
+    .slice(0, 20);
+
+  // Pick representative sub-scores from the worst-prepared schedule
+  const worstSchedule = ach.reduce((min, a) => a.baselinePreparedness.overall < min.baselinePreparedness.overall ? a : min, ach[0]);
+  const subScores = worstSchedule.baselinePreparedness.subScores;
+
+  const probBand: AchievabilityResult["onTimeDelivery"]["band"] =
+    probOnTime >= 80 ? "very-likely" :
+    probOnTime >= 60 ? "likely" :
+    probOnTime >= 40 ? "uncertain" :
+    probOnTime >= 20 ? "unlikely" : "very-unlikely";
+
+  const drivers: string[] = [
+    `${perSchedule.length} schedules aggregated · weighted by activity count.`,
+    ...worstSchedule.onTimeDelivery.drivers.slice(0, 2),
+  ];
+
+  const verdict: AchievabilityResult["baselinePreparedness"]["verdict"] =
+    overallPrep >= 85 ? "strong" : overallPrep >= 70 ? "adequate" : overallPrep >= 50 ? "weak" : "poor";
+
+  const headline = (() => {
+    switch (verdict) {
+      case "strong":   return `Aggregate baseline preparedness — ${overallPrep}/100 across ${perSchedule.length} schedules.`;
+      case "adequate": return `Aggregate baseline preparedness — ${overallPrep}/100 across ${perSchedule.length} schedules.`;
+      case "weak":     return `Aggregate baseline preparedness — ${overallPrep}/100 across ${perSchedule.length} schedules.`;
+      case "poor":     return `Aggregate baseline preparedness — ${overallPrep}/100 across ${perSchedule.length} schedules.`;
+    }
+  })();
+
+  const achievability: AchievabilityResult = {
+    baselinePreparedness: { overall: overallPrep, verdict, headline, subScores },
+    onTimeDelivery: {
+      probability: probOnTime,
+      confidence: ach.every((a) => a.onTimeDelivery.confidence === "high") ? "high" :
+                  ach.some((a) => a.onTimeDelivery.confidence === "low") ? "low" : "medium",
+      band: probBand,
+      headline: `${probOnTime}% likelihood of on-plan delivery (activity-weighted across ${perSchedule.length} schedules).`,
+      drivers,
+    },
+    problemActivities: { total: totalProblems, bySeverity, byReason, top: topProblems },
+  };
+
+  return { stats, cpm, dcma, baseline, achievability };
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -196,10 +269,18 @@ export function getPortfolio(schedules: Schedule[]): { schedule: Schedule; analy
   if (hit) return hit;
 
   const schedule  = combineSchedules(schedules);
-  const analytics = schedules.length === 1
-    // Fast path: single schedule — reuse the standard analytics fn through a fresh run
-    ? { stats: computeStats(schedules[0]), cpm: runCPM(schedules[0]), dcma: runDCMA(schedules[0], runCPM(schedules[0])), baseline: runBaseline(schedules[0]) }
-    : aggregateAnalytics(schedules);
+  const analytics: ScheduleAnalytics = (() => {
+    if (schedules.length === 1) {
+      const s = schedules[0];
+      const cpm = runCPM(s);
+      const dcma = runDCMA(s, cpm);
+      const baseline = runBaseline(s);
+      const stats = computeStats(s);
+      const achievability = runAchievability(s, cpm, dcma, baseline);
+      return { stats, cpm, dcma, baseline, achievability };
+    }
+    return aggregateAnalytics(schedules);
+  })();
 
   const result = { schedule, analytics };
   portfolioCache.set(key, result);
