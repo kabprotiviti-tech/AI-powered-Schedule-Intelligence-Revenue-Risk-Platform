@@ -5,98 +5,176 @@
 
 /* ─── Theme tokens (RGB triplets so Tailwind can apply <alpha-value>) ────── */
 
-:root, [data-theme="dark"] {
+/* ── Dark themes ────────────────────────────────────────────────────────── */
+
+:root, [data-theme="midnight"] {
+  /* Deep navy + electric blue */
   --canvas:        7 12 24;
   --surface:       13 20 36;
   --card:          17 29 46;
   --border:        26 45 69;
   --border-subtle: 22 32 56;
-
   --primary:       59 130 246;
   --primary-dim:   29 78 216;
   --success:       16 185 129;
   --warning:       245 158 11;
   --danger:        239 68 68;
-
   --text-primary:   226 232 240;
   --text-secondary: 100 116 139;
   --text-muted:     51 65 85;
-
-  --overlay: 255 255 255;   /* light hover film over dark surfaces */
+  --overlay: 255 255 255;
   --shadow-strength: 0.4;
   --grid-color: 59 130 246;
   --grid-opacity: 0.015;
 }
 
-[data-theme="light"] {
+[data-theme="carbon"] {
+  /* Pure black + cyan accent */
+  --canvas:        0 0 0;
+  --surface:       12 12 14;
+  --card:          18 18 22;
+  --border:        38 38 44;
+  --border-subtle: 28 28 33;
+  --primary:       6 182 212;
+  --primary-dim:   8 145 178;
+  --success:       16 185 129;
+  --warning:       245 158 11;
+  --danger:        239 68 68;
+  --text-primary:   245 245 245;
+  --text-secondary: 156 163 175;
+  --text-muted:     75 85 99;
+  --overlay: 255 255 255;
+  --shadow-strength: 0.5;
+  --grid-color: 6 182 212;
+  --grid-opacity: 0.02;
+}
+
+[data-theme="forest"] {
+  /* Dark green + sage */
+  --canvas:        8 20 16;
+  --surface:       14 30 24;
+  --card:          18 38 30;
+  --border:        38 64 52;
+  --border-subtle: 28 50 41;
+  --primary:       52 211 153;
+  --primary-dim:   16 163 107;
+  --success:       110 231 183;
+  --warning:       234 179 8;
+  --danger:        239 68 68;
+  --text-primary:   220 235 228;
+  --text-secondary: 134 156 145;
+  --text-muted:     71 95 84;
+  --overlay: 255 255 255;
+  --shadow-strength: 0.4;
+  --grid-color: 52 211 153;
+  --grid-opacity: 0.02;
+}
+
+[data-theme="plum"] {
+  /* Dark purple + magenta accent */
+  --canvas:        18 9 32;
+  --surface:       28 16 48;
+  --card:          36 22 60;
+  --border:        61 41 90;
+  --border-subtle: 50 32 78;
+  --primary:       217 70 239;
+  --primary-dim:   168 85 247;
+  --success:       52 211 153;
+  --warning:       250 204 21;
+  --danger:        244 63 94;
+  --text-primary:   240 232 255;
+  --text-secondary: 167 139 200;
+  --text-muted:     97 79 130;
+  --overlay: 255 255 255;
+  --shadow-strength: 0.45;
+  --grid-color: 217 70 239;
+  --grid-opacity: 0.02;
+}
+
+/* ── Light themes ───────────────────────────────────────────────────────── */
+
+[data-theme="daylight"] {
+  /* Clean enterprise white + blue */
   --canvas:        248 250 252;
   --surface:       255 255 255;
   --card:          255 255 255;
   --border:        226 232 240;
   --border-subtle: 241 245 249;
-
   --primary:       37 99 235;
   --primary-dim:   29 78 216;
   --success:       5 150 105;
   --warning:       217 119 6;
   --danger:        220 38 38;
-
   --text-primary:   15 23 42;
   --text-secondary: 71 85 105;
   --text-muted:     148 163 184;
-
-  --overlay: 15 23 42;       /* dark hover film over light surfaces */
+  --overlay: 15 23 42;
   --shadow-strength: 0.08;
   --grid-color: 15 23 42;
   --grid-opacity: 0.03;
 }
 
-[data-theme="aldar"] {
-  /* Warm cream + Aldar gold + deep ink */
-  --canvas:        250 247 240;
-  --surface:       255 252 246;
+[data-theme="linen"] {
+  /* Warm cream + amber */
+  --canvas:        252 248 240;
+  --surface:       255 253 247;
   --card:          255 255 255;
-  --border:        232 219 196;
+  --border:        232 222 200;
   --border-subtle: 244 235 217;
-
-  --primary:       180 134 53;     /* Aldar gold */
-  --primary-dim:   146 105 30;
+  --primary:       194 124 14;
+  --primary-dim:   146 96 9;
   --success:       46 125 50;
-  --warning:       194 124 14;
+  --warning:       217 119 6;
   --danger:        178 34 52;
-
-  --text-primary:   31 41 55;
-  --text-secondary: 107 114 128;
-  --text-muted:     156 163 175;
-
-  --overlay: 31 41 55;
-  --shadow-strength: 0.1;
-  --grid-color: 180 134 53;
-  --grid-opacity: 0.04;
+  --text-primary:   45 36 24;
+  --text-secondary: 117 105 84;
+  --text-muted:     168 154 128;
+  --overlay: 45 36 24;
+  --shadow-strength: 0.09;
+  --grid-color: 194 124 14;
+  --grid-opacity: 0.035;
 }
 
-[data-theme="protiviti"] {
-  /* Deep slate + Protiviti red */
-  --canvas:        15 23 42;
-  --surface:       30 41 59;
-  --card:          30 41 59;
-  --border:        51 65 85;
-  --border-subtle: 51 65 85;
-
-  --primary:       220 38 38;
-  --primary-dim:   185 28 28;
+[data-theme="mint"] {
+  /* Cool white + teal */
+  --canvas:        244 251 250;
+  --surface:       253 255 254;
+  --card:          255 255 255;
+  --border:        205 231 226;
+  --border-subtle: 222 240 236;
+  --primary:       13 148 136;
+  --primary-dim:   15 118 110;
   --success:       16 185 129;
-  --warning:       245 158 11;
-  --danger:        239 68 68;
+  --warning:       217 119 6;
+  --danger:        220 38 38;
+  --text-primary:   17 51 47;
+  --text-secondary: 71 99 95;
+  --text-muted:     140 168 163;
+  --overlay: 17 51 47;
+  --shadow-strength: 0.07;
+  --grid-color: 13 148 136;
+  --grid-opacity: 0.03;
+}
 
-  --text-primary:   248 250 252;
-  --text-secondary: 148 163 184;
-  --text-muted:     100 116 139;
-
-  --overlay: 255 255 255;
-  --shadow-strength: 0.45;
-  --grid-color: 220 38 38;
-  --grid-opacity: 0.02;
+[data-theme="graphite"] {
+  /* Light slate + indigo */
+  --canvas:        241 244 249;
+  --surface:       250 251 254;
+  --card:          255 255 255;
+  --border:        211 219 232;
+  --border-subtle: 226 232 240;
+  --primary:       79 70 229;
+  --primary-dim:   67 56 202;
+  --success:       5 150 105;
+  --warning:       217 119 6;
+  --danger:        220 38 38;
+  --text-primary:   17 24 39;
+  --text-secondary: 75 85 99;
+  --text-muted:     156 163 175;
+  --overlay: 17 24 39;
+  --shadow-strength: 0.08;
+  --grid-color: 79 70 229;
+  --grid-opacity: 0.03;
 }
 
 /* ─── Base ───────────────────────────────────────────────────────────────── */
