@@ -4,9 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "postinstall": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio"
   },
   "dependencies": {
     "next": "14.2.5",
@@ -21,7 +25,8 @@
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^3.8.3",
     "idb": "^8.0.0",
-    "fast-xml-parser": "^4.5.0"
+    "fast-xml-parser": "^4.5.0",
+    "@prisma/client": "^5.22.0"
   },
   "devDependencies": {
     "typescript": "^5",
@@ -33,6 +38,7 @@
     "postcss": "^8",
     "autoprefixer": "^10.0.1",
     "eslint": "^8",
-    "eslint-config-next": "14.2.5"
+    "eslint-config-next": "14.2.5",
+    "prisma": "^5.22.0"
   }
 }
