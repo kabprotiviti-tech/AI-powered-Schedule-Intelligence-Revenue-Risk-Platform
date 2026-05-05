@@ -12,10 +12,20 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { Resend } from "resend";
 import { prisma } from "@/lib/db/prisma";
 
-const resend = new Resend(process.env.RESEND_API_KEY ?? "");
-
 const APP_NAME = "NEXUS Schedule Intelligence";
 const FROM     = process.env.EMAIL_FROM ?? "NEXUS <onboarding@resend.dev>";
+
+// Lazy-init so the Resend SDK doesn't throw at module-load time on builds where
+// RESEND_API_KEY isn't set (e.g. preview deploys before env vars are wired).
+function getResend(): Resend {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) {
+    throw new Error(
+      "RESEND_API_KEY is not set. Add it in Vercel → Settings → Env Vars before sending sign-in emails.",
+    );
+  }
+  return new Resend(key);
+}
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
@@ -39,7 +49,7 @@ export const authOptions: NextAuthOptions = {
       sendVerificationRequest: async ({ identifier, url }) => {
         const subject = `Sign in to ${APP_NAME}`;
         const { html, text } = renderMagicLinkEmail({ url, host: new URL(url).host });
-        const result = await resend.emails.send({
+        const result = await getResend().emails.send({
           from: FROM,
           to: identifier,
           subject,
