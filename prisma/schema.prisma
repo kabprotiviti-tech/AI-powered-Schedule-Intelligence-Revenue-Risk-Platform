@@ -1,4 +1,4 @@
-// NEXUS Schedule Intelligence — Phase 1.1 schema
+// NEXUS Schedule Intelligence — schema
 // Future phases will add Tenant, Membership, Schedule, ScheduleVersion, AuditEvent.
 //
 // Connection strings:
@@ -17,14 +17,61 @@ datasource db {
   directUrl = env("POSTGRES_URL_NON_POOLING")
 }
 
-// ── Phase 1.1 — minimal user model ──────────────────────────────────────────
+// ── Phase 1.1 / 1.2 — User + NextAuth account/session/verification ──────────
+//
+// User identity model. NextAuth (PrismaAdapter) writes into Account, Session,
+// and VerificationToken; the User model carries our app-specific fields.
+
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  image     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  image         String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts Account[]
+  sessions Session[]
 
   @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
 }
