@@ -569,8 +569,70 @@ function detectFloors(s: Schedule): FloorBreakdown {
     if (bucket === "plant")       flags.plant = true;
   };
 
+  // Pass 0: compact UAE/GCC building code like "(2B+G+7+R+UR)" or "(B+G+M+9+R)"
+  // or "G+P+12+R" embedded in WBS root names. This is a single string that
+  // encodes the entire floor structure, so parse it once and exit.
+  //   Bn / nB  : basements (n levels)
+  //   G        : ground floor
+  //   M        : mezzanine
+  //   Pn / nP  : podium levels
+  //   nn       : typical floor count (e.g. "7" = 7 typical floors)
+  //   R        : roof
+  //   UR       : upper roof
+  //   PH       : penthouse
+  const parseCompact = (txt: string, source: string) => {
+    // Match a parenthesised or bare run of letter/digit/+ tokens
+    const re = /\b((?:\d{0,2}[BPM][+\s]*){0,3}(?:G[+\s]*)(?:\d{0,2}[BPM][+\s]*)*(?:\d{1,2}[+\s]*)?(?:M[+\s]*)?(?:PH[+\s]*|UR[+\s]*|R[+\s]*)*)\b/gi;
+    const candidate = txt.match(/\(\s*((?:\d{1,2}[BPMR]?|[BPMRG]|UR|PH)(?:\s*\+\s*(?:\d{1,2}[BPMR]?|[BPMRG]|UR|PH))+)\s*\)/i);
+    if (!candidate) return false;
+    const code = candidate[1].replace(/\s+/g, "").toUpperCase();
+    // Tokenize on "+"
+    const segs = code.split("+");
+    let consumed = false;
+    for (const seg of segs) {
+      if (!seg) continue;
+      // Patterns:
+      //   "B", "2B", "B2" → basement count
+      //   "P", "2P", "P2" → podium count
+      //   "G"             → ground
+      //   "M"             → mezz
+      //   "R"             → roof
+      //   "UR"            → upper roof
+      //   "PH"            → penthouse
+      //   pure digits     → typical floor count
+      let m: RegExpMatchArray | null;
+      if (seg === "G")      { flags.ground = true; if (!flags.ground) evidence.push({ marker: "G", bucket: "ground", source }); consumed = true; continue; }
+      if (seg === "M")      { recordFlag("mezz", "M", source); consumed = true; continue; }
+      if (seg === "UR")     { recordFlag("roof", "UR", source); consumed = true; continue; }
+      if (seg === "R")      { recordFlag("roof", "R", source); consumed = true; continue; }
+      if (seg === "PH")     { recordFlag("penthouse", "PH", source); consumed = true; continue; }
+      m = seg.match(/^(\d{1,2})B$/) || seg.match(/^B(\d{1,2})$/);
+      if (m) { const n = parseInt(m[1], 10); for (let i = 1; i <= n; i++) recordNum("basement", i, `B${i}`, source); consumed = true; continue; }
+      if (seg === "B")      { recordNum("basement", 1, "B", source); consumed = true; continue; }
+      m = seg.match(/^(\d{1,2})P$/) || seg.match(/^P(\d{1,2})$/);
+      if (m) { const n = parseInt(m[1], 10); for (let i = 1; i <= n; i++) recordNum("podium", i, `P${i}`, source); consumed = true; continue; }
+      if (seg === "P")      { recordNum("podium", 1, "P", source); consumed = true; continue; }
+      m = seg.match(/^(\d{1,2})$/);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (n >= 1 && n < 100) {
+          for (let i = 1; i <= n; i++) recordNum("typical", i, `L${i}`, source);
+          consumed = true;
+        }
+        continue;
+      }
+    }
+    return consumed;
+    void re; // silence unused warning if linter complains
+  };
+
   const inspect = (txt: string, source: string) => {
     if (!txt) return;
+
+    // Compact code first — it's authoritative when present (e.g. "(2B+G+7+R+UR)")
+    if (parseCompact(txt, source)) {
+      return;
+    }
 
     // Pass 1: whole-text scan for compound phrases ("Basement Level 2",
     // "Lower Ground", "Plant Room Level"). All patterns global-flagged so we
