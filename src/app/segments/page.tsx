@@ -1,14 +1,18 @@
 "use client";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  ChevronRight, Building2, ArrowUpRight, Layers as LayersIcon, AlertCircle,
+  ChevronRight, Building2, Layers as LayersIcon, AlertCircle,
 } from "lucide-react";
 import { useSchedule } from "@/lib/schedule/ScheduleProvider";
 import { classifyProject, ASSET_LABELS, type AssetType, type Tier } from "@/lib/schedule/classifier";
 import { getPortfolio } from "@/lib/schedule/portfolio";
 import { EmptyState } from "@/components/ui/EmptyState";
 import type { Schedule } from "@/lib/schedule/types";
+
+// Metrics that need full analytics — computed lazily so first paint isn't
+// blocked by N× CPM/DCMA/baseline pipelines.
+interface LazyMetrics { dcmaScore: number; baselineSlipDays: number; problems: number; }
 
 const tierStyle: Record<Tier, { bg: string; text: string }> = {
   A: { bg: "bg-danger/15 border-danger/30",   text: "text-danger" },
@@ -24,20 +28,15 @@ interface Entry {
   headline: string;
   floors: number;
   activities: number;
-  // analytics-derived
-  dcmaScore: number;
-  baselineSlipDays: number;
-  problems: number;
 }
 
 export default function SegmentsPage() {
   const { all, selectedIds, toggleSelected, loading } = useSchedule();
 
+  // Cheap path: classifier-only data renders synchronously on first paint.
   const entries = useMemo<Entry[]>(() => {
     return all.map((s) => {
       const snap = classifyProject(s);
-      // Single-schedule analytics for leaderboard metrics
-      const { analytics } = getPortfolio([s]);
       return {
         schedule: s,
         assetType: snap.assetType,
@@ -46,11 +45,45 @@ export default function SegmentsPage() {
         headline: snap.headline,
         floors: snap.floors.totalAboveGrade,
         activities: snap.scale.activities,
-        dcmaScore: analytics.dcma.overallScore,
-        baselineSlipDays: analytics.baseline.projectFinishVarDays,
-        problems: analytics.achievability.problemActivities.total,
       };
     });
+  }, [all]);
+
+  // Expensive path: full analytics deferred. Each schedule's CPM/DCMA/baseline/
+  // achievability pipeline runs in its own idle tick so 20 schedules don't
+  // block the main thread on first render. portfolioCache makes subsequent
+  // navigations instant.
+  const [lazyMetrics, setLazyMetrics] = useState<Map<string, LazyMetrics>>(() => new Map());
+  useEffect(() => {
+    let cancelled = false;
+    let i = 0;
+    const yieldFn: (cb: () => void) => void =
+      typeof window !== "undefined" && "requestIdleCallback" in window
+        ? (cb) => (window as unknown as { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => void }).requestIdleCallback(cb, { timeout: 250 })
+        : (cb) => { setTimeout(cb, 16); };
+
+    const tick = () => {
+      if (cancelled || i >= all.length) return;
+      const s = all[i++];
+      try {
+        const { analytics } = getPortfolio([s]);
+        if (cancelled) return;
+        setLazyMetrics((prev) => {
+          const next = new Map(prev);
+          next.set(s.id, {
+            dcmaScore: analytics.dcma.overallScore,
+            baselineSlipDays: analytics.baseline.projectFinishVarDays,
+            problems: analytics.achievability.problemActivities.total,
+          });
+          return next;
+        });
+      } catch {
+        // schedule analytics may fail for malformed inputs — skip without blocking the queue
+      }
+      yieldFn(tick);
+    };
+    yieldFn(tick);
+    return () => { cancelled = true; };
   }, [all]);
 
   if (loading) return <div className="text-center text-text-secondary py-20 text-sm">Loading…</div>;
@@ -105,12 +138,20 @@ export default function SegmentsPage() {
 
       {/* Per-segment groups */}
       {groupedByCount.map(([assetType, group]) => {
-        // Sort by DCMA score desc within segment to make leaderboard
-        const sorted = [...group].sort((a, b) => b.dcmaScore - a.dcmaScore);
+        // Pull lazy metrics where available; rows without metrics yet render with placeholders.
+        const withMetrics = group.map((e) => ({ ...e, m: lazyMetrics.get(e.schedule.id) }));
+        // Sort: rows with metrics first (by DCMA desc), then unmeasured rows.
+        const sorted = [...withMetrics].sort((a, b) => {
+          if (!a.m && !b.m) return 0;
+          if (!a.m) return 1;
+          if (!b.m) return -1;
+          return b.m.dcmaScore - a.m.dcmaScore;
+        });
         const tierCount = { A: 0, B: 0, C: 0 } as Record<Tier, number>;
         for (const g of group) tierCount[g.tier]++;
-        const avgDCMA = Math.round(group.reduce((s, g) => s + g.dcmaScore, 0) / group.length);
-        const avgSlip = Math.round(group.reduce((s, g) => s + g.baselineSlipDays, 0) / group.length);
+        const measured = withMetrics.filter((r) => r.m);
+        const avgDCMA = measured.length === 0 ? null : Math.round(measured.reduce((s, g) => s + g.m!.dcmaScore, 0) / measured.length);
+        const avgSlip = measured.length === 0 ? null : Math.round(measured.reduce((s, g) => s + g.m!.baselineSlipDays, 0) / measured.length);
         const isGeneric = assetType === "Generic";
 
         return (
@@ -139,15 +180,17 @@ export default function SegmentsPage() {
                 <div className="text-right">
                   <div className="text-[10px] uppercase tracking-wider text-text-secondary">Avg DCMA</div>
                   <div className={`text-lg font-bold font-mono ${
+                    avgDCMA === null ? "text-text-secondary" :
                     avgDCMA >= 90 ? "text-success" : avgDCMA >= 70 ? "text-warning" : "text-danger"
-                  }`}>{avgDCMA}/100</div>
+                  }`}>{avgDCMA === null ? "…" : `${avgDCMA}/100`}</div>
                 </div>
                 <div className="text-right">
                   <div className="text-[10px] uppercase tracking-wider text-text-secondary">Avg Slip</div>
                   <div className={`text-lg font-bold font-mono ${
+                    avgSlip === null ? "text-text-secondary" :
                     avgSlip > 7 ? "text-danger" : avgSlip > 0 ? "text-warning" : "text-success"
                   }`}>
-                    {avgSlip >= 0 ? "+" : ""}{avgSlip}d
+                    {avgSlip === null ? "…" : `${avgSlip >= 0 ? "+" : ""}${avgSlip}d`}
                   </div>
                 </div>
               </div>
@@ -172,6 +215,7 @@ export default function SegmentsPage() {
                 {sorted.map((e, i) => {
                   const ts = tierStyle[e.tier];
                   const onDash = selectedIds.includes(e.schedule.id);
+                  const m = e.m;
                   return (
                     <tr key={e.schedule.id} className="border-b border-border last:border-0 hover:bg-overlay/[0.03] transition-colors">
                       <td className="py-2 text-text-secondary font-mono">{i + 1}</td>
@@ -187,14 +231,16 @@ export default function SegmentsPage() {
                       <td className="py-2 text-right font-mono text-text-secondary">{e.floors || "—"}</td>
                       <td className="py-2 text-right font-mono text-text-secondary">{e.activities.toLocaleString()}</td>
                       <td className={`py-2 text-right font-mono font-semibold ${
-                        e.dcmaScore >= 90 ? "text-success" : e.dcmaScore >= 70 ? "text-warning" : "text-danger"
-                      }`}>{e.dcmaScore}/100</td>
+                        !m ? "text-text-secondary" :
+                        m.dcmaScore >= 90 ? "text-success" : m.dcmaScore >= 70 ? "text-warning" : "text-danger"
+                      }`}>{m ? `${m.dcmaScore}/100` : "…"}</td>
                       <td className={`py-2 text-right font-mono ${
-                        e.baselineSlipDays > 7 ? "text-danger" : e.baselineSlipDays > 0 ? "text-warning" : "text-success"
+                        !m ? "text-text-secondary" :
+                        m.baselineSlipDays > 7 ? "text-danger" : m.baselineSlipDays > 0 ? "text-warning" : "text-success"
                       }`}>
-                        {e.baselineSlipDays >= 0 ? "+" : ""}{e.baselineSlipDays}d
+                        {m ? `${m.baselineSlipDays >= 0 ? "+" : ""}${m.baselineSlipDays}d` : "…"}
                       </td>
-                      <td className="py-2 text-right font-mono text-text-secondary">{e.problems.toLocaleString()}</td>
+                      <td className="py-2 text-right font-mono text-text-secondary">{m ? m.problems.toLocaleString() : "…"}</td>
                       <td className="py-2 text-right">
                         <button
                           onClick={() => toggleSelected(e.schedule.id)}
