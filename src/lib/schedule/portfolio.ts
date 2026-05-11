@@ -20,7 +20,7 @@ import { runDCMA, type DCMAResult, type DCMACheck, type CheckStatus } from "./dc
 import { runBaseline, type BaselineVariance, type ActivityVariance } from "./baseline";
 import { computeStats, type PortfolioStats }   from "./stats";
 import { runAchievability, type AchievabilityResult } from "./achievability";
-import { classifyProject, type ProjectSnapshot }      from "./classifier";
+import { classifyProject, type ProjectSnapshot, type ClassifierOverrideInput } from "./classifier";
 import type { ScheduleAnalytics } from "./analytics";
 
 // ── Combined schedule (purely synthetic — never persisted) ──────────────────
@@ -85,7 +85,7 @@ function combineSchedules(schedules: Schedule[]): Schedule {
 }
 
 // ── Aggregate analytics ─────────────────────────────────────────────────────
-function aggregateAnalytics(schedules: Schedule[]): ScheduleAnalytics {
+function aggregateAnalytics(schedules: Schedule[], overrides?: Map<string, ClassifierOverrideInput>): ScheduleAnalytics {
   const perSchedule = schedules.map((s) => ({
     s,
     cpm:      runCPM(s),
@@ -282,7 +282,7 @@ function aggregateAnalytics(schedules: Schedule[]): ScheduleAnalytics {
   // Portfolio-level snapshot: classify each underlying schedule, then pick the
   // majority asset type and highest tier as the headline. Per-schedule
   // snapshots stay available via classifyProject() on /segments.
-  const perSnapshots = perSchedule.map((r) => classifyProject(r.s));
+  const perSnapshots = perSchedule.map((r) => classifyProject(r.s, overrides?.get(r.s.id)));
   const counts = new Map<string, number>();
   for (const sn of perSnapshots) counts.set(sn.assetType, (counts.get(sn.assetType) ?? 0) + 1);
   const dominant = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0][0] as ProjectSnapshot["assetType"];
@@ -294,10 +294,13 @@ function aggregateAnalytics(schedules: Schedule[]): ScheduleAnalytics {
 
   const snapshot: ProjectSnapshot = {
     ...winner,
+    alternates:     [],
     tier:           topTier,
     tierLabel:      topTier === "A" ? "Tier A — Mega / Complex" : topTier === "B" ? "Tier B — Mid-Scale" : "Tier C — Small / Simple",
     tierRationale:  `portfolio of ${perSchedule.length} schedules · dominant type "${winner.assetLabel}" (${counts.get(dominant)}/${perSchedule.length})`,
-    headline:       `${perSchedule.length} schedules · majority ${winner.assetLabel} · Tier ${topTier}`,
+    tierStandard:   winner.tierStandard,
+    overridden:     false,
+    headline:       `${perSchedule.length} schedules · majority ${winner.assetLabel}`,
   };
 
   return { stats, cpm, dcma, baseline, achievability, snapshot };
@@ -306,9 +309,23 @@ function aggregateAnalytics(schedules: Schedule[]): ScheduleAnalytics {
 // ── Public API ─────────────────────────────────────────────────────────────
 const portfolioCache = new Map<string, { schedule: Schedule; analytics: ScheduleAnalytics }>();
 
-export function getPortfolio(schedules: Schedule[]): { schedule: Schedule; analytics: ScheduleAnalytics } {
+function overrideFingerprint(schedules: Schedule[], overrides?: Map<string, ClassifierOverrideInput>): string {
+  if (!overrides || overrides.size === 0) return "";
+  const parts: string[] = [];
+  for (const s of schedules) {
+    const o = overrides.get(s.id);
+    if (o) parts.push(`${s.id}:${o.assetType}:${o.tier}`);
+  }
+  return parts.sort().join(",");
+}
+
+export function getPortfolio(
+  schedules: Schedule[],
+  overrides?: Map<string, ClassifierOverrideInput>,
+): { schedule: Schedule; analytics: ScheduleAnalytics } {
   if (schedules.length === 0) throw new Error("Cannot build portfolio from zero schedules.");
-  const key = schedules.map((s) => s.id).sort().join("|");
+  const fp = overrideFingerprint(schedules, overrides);
+  const key = schedules.map((s) => s.id).sort().join("|") + (fp ? `::${fp}` : "");
   const hit = portfolioCache.get(key);
   if (hit) return hit;
 
@@ -321,10 +338,10 @@ export function getPortfolio(schedules: Schedule[]): { schedule: Schedule; analy
       const baseline = runBaseline(s);
       const stats = computeStats(s);
       const achievability = runAchievability(s, cpm, dcma, baseline);
-      const snapshot = classifyProject(s);
+      const snapshot = classifyProject(s, overrides?.get(s.id));
       return { stats, cpm, dcma, baseline, achievability, snapshot };
     }
-    return aggregateAnalytics(schedules);
+    return aggregateAnalytics(schedules, overrides);
   })();
 
   const result = { schedule, analytics };

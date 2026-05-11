@@ -63,7 +63,10 @@ export function PMODashboard({ schedule, analytics }: { schedule: Schedule; anal
       </div>
 
       {/* Project snapshot */}
-      <ProjectSnapshotPanel snapshot={analytics.snapshot} />
+      <ProjectSnapshotPanel
+        snapshot={analytics.snapshot}
+        scheduleId={schedule.id.startsWith("__portfolio__") ? undefined : schedule.id}
+      />
 
       {/* Achievability */}
       <AchievabilityPanel schedule={schedule} achievability={analytics.achievability} />

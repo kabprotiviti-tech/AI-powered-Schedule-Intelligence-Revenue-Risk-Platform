@@ -7,7 +7,7 @@ import { runDCMA, type DCMAResult }                 from "./dcma";
 import { runBaseline, type BaselineVariance }       from "./baseline";
 import { computeStats, type PortfolioStats }        from "./stats";
 import { runAchievability, type AchievabilityResult } from "./achievability";
-import { classifyProject, type ProjectSnapshot }      from "./classifier";
+import { classifyProject, type ProjectSnapshot, type ClassifierOverrideInput } from "./classifier";
 
 export interface ScheduleAnalytics {
   stats:         PortfolioStats;
@@ -18,10 +18,16 @@ export interface ScheduleAnalytics {
   snapshot:      ProjectSnapshot;
 }
 
+// Cache key includes override fingerprint so changing the override
+// invalidates the snapshot but not the heavy CPM/DCMA bundle.
 const cache = new Map<string, ScheduleAnalytics>();
+function cacheKey(s: Schedule, ov?: ClassifierOverrideInput) {
+  return ov ? `${s.id}::${ov.assetType}::${ov.tier}` : s.id;
+}
 
-export function getAnalytics(s: Schedule): ScheduleAnalytics {
-  const cached = cache.get(s.id);
+export function getAnalytics(s: Schedule, override?: ClassifierOverrideInput): ScheduleAnalytics {
+  const key = cacheKey(s, override);
+  const cached = cache.get(key);
   if (cached) return cached;
 
   const cpm           = runCPM(s);
@@ -29,14 +35,14 @@ export function getAnalytics(s: Schedule): ScheduleAnalytics {
   const baseline      = runBaseline(s);
   const stats         = computeStats(s);
   const achievability = runAchievability(s, cpm, dcma, baseline);
-  const snapshot      = classifyProject(s);
+  const snapshot      = classifyProject(s, override);
 
   const result = { stats, cpm, dcma, baseline, achievability, snapshot };
-  cache.set(s.id, result);
+  cache.set(key, result);
   return result;
 }
 
 export function clearAnalyticsCache(scheduleId?: string) {
-  if (scheduleId) cache.delete(scheduleId);
-  else cache.clear();
+  if (!scheduleId) { cache.clear(); return; }
+  for (const k of cache.keys()) if (k === scheduleId || k.startsWith(`${scheduleId}::`)) cache.delete(k);
 }

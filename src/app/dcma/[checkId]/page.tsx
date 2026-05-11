@@ -25,20 +25,20 @@ const checkIcon: Record<CheckStatus, React.ElementType> = {
 
 export default function DCMACheckPage() {
   const { checkId } = useParams<{ checkId: string }>();
-  const { selected, all, loading } = useSchedule();
+  const { selected, all, loading, overrides } = useSchedule();
   const [q, setQ] = useState("");
 
   const data = useMemo(() => {
     const pool = selected.length > 0 ? selected : all;
     if (pool.length === 0) return null;
-    const portfolio = getPortfolio(pool);
+    const portfolio = getPortfolio(pool, overrides);
     const check = portfolio.analytics.dcma.checks.find((c) => c.id === checkId);
     if (!check) return null;
     const allActs = pool.flatMap((s) => s.activities);
     const idSet = new Set(check.failingIds);
     const acts = allActs.filter((a) => idSet.has(a.id));
     return { check, acts, analytics: portfolio.analytics };
-  }, [selected, all, checkId]);
+  }, [selected, all, checkId, overrides]);
 
   if (loading) return <div className="text-center text-text-secondary py-20 text-sm">Loading…</div>;
   if (all.length === 0)  return <EmptyState />;

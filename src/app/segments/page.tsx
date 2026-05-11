@@ -31,12 +31,12 @@ interface Entry {
 }
 
 export default function SegmentsPage() {
-  const { all, selectedIds, toggleSelected, loading } = useSchedule();
+  const { all, selectedIds, toggleSelected, loading, overrides } = useSchedule();
 
   // Cheap path: classifier-only data renders synchronously on first paint.
   const entries = useMemo<Entry[]>(() => {
     return all.map((s) => {
-      const snap = classifyProject(s);
+      const snap = classifyProject(s, overrides.get(s.id));
       return {
         schedule: s,
         assetType: snap.assetType,
@@ -66,7 +66,7 @@ export default function SegmentsPage() {
       if (cancelled || i >= all.length) return;
       const s = all[i++];
       try {
-        const { analytics } = getPortfolio([s]);
+        const { analytics } = getPortfolio([s], overrides);
         if (cancelled) return;
         setLazyMetrics((prev) => {
           const next = new Map(prev);
@@ -84,7 +84,7 @@ export default function SegmentsPage() {
     };
     yieldFn(tick);
     return () => { cancelled = true; };
-  }, [all]);
+  }, [all, overrides]);
 
   if (loading) return <div className="text-center text-text-secondary py-20 text-sm">Loading…</div>;
   if (all.length === 0) return <EmptyState />;

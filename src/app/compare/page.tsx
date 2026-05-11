@@ -66,7 +66,7 @@ const METRICS: MetricDef[] = [
 const GROUPS = ["Volume", "Progress", "Quality", "Critical Path", "Execution", "Achievability"];
 
 export default function ComparePage() {
-  const { all, loading } = useSchedule();
+  const { all, loading, overrides } = useSchedule();
   const [pickedIds, setPickedIds] = useState<string[]>([]);
 
   // Pick the first 3 schedules by default once loaded
@@ -75,8 +75,8 @@ export default function ComparePage() {
   const picked: Schedule[] = ids.map((id) => all.find((s) => s.id === id)).filter((s): s is Schedule => !!s);
 
   const analyses = useMemo(
-    () => picked.map((s) => ({ schedule: s, analytics: getPortfolio([s]).analytics })),
-    [picked],
+    () => picked.map((s) => ({ schedule: s, analytics: getPortfolio([s], overrides).analytics })),
+    [picked, overrides],
   );
 
   function toggle(id: string) {

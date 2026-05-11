@@ -20,12 +20,12 @@ const checkIcon: Record<CheckStatus, React.ElementType> = {
 };
 
 export default function DCMAIndexPage() {
-  const { selected, all, loading } = useSchedule();
+  const { selected, all, loading, overrides } = useSchedule();
 
   const portfolio = useMemo(() => {
     const pool = selected.length > 0 ? selected : all;
-    return pool.length > 0 ? getPortfolio(pool) : null;
-  }, [selected, all]);
+    return pool.length > 0 ? getPortfolio(pool, overrides) : null;
+  }, [selected, all, overrides]);
 
   if (loading) return <div className="text-center text-text-secondary py-20 text-sm">Loading…</div>;
   if (all.length === 0) return <EmptyState />;

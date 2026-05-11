@@ -90,7 +90,11 @@ export function CEODashboard({ schedule, analytics }: { schedule: Schedule; anal
       </div>
 
       {/* Project snapshot — what IS this project? */}
-      <ProjectSnapshotPanel snapshot={analytics.snapshot} compact />
+      <ProjectSnapshotPanel
+        snapshot={analytics.snapshot}
+        compact
+        scheduleId={schedule.id.startsWith("__portfolio__") ? undefined : schedule.id}
+      />
 
       {/* Achievability — sits above benchmark since it directly answers "will we deliver?" */}
       <AchievabilityPanel schedule={schedule} achievability={analytics.achievability} compact />

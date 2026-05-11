@@ -12,7 +12,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 
 export default function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { all, loading } = useSchedule();
+  const { all, loading, overrides } = useSchedule();
   const router = useRouter();
 
   const data = useMemo(() => {
@@ -27,7 +27,7 @@ export default function ActivityDetailPage() {
     if (!activity || !owningSchedule) return null;
 
     // Run analytics on the owning schedule (drill-down is per-schedule, not portfolio)
-    const portfolio = getPortfolio([owningSchedule]);
+    const portfolio = getPortfolio([owningSchedule], overrides);
     const analytics = portfolio.analytics;
 
     const tf = analytics.cpm.totalFloat.get(activity.id) ?? null;
@@ -39,7 +39,7 @@ export default function ActivityDetailPage() {
     const baseVar = analytics.baseline.perActivity.find((v) => v.id === activity!.id);
 
     return { activity, tf, ff, isCrit, succs, failedChecks, baseVar, owningSchedule };
-  }, [all, id]);
+  }, [all, id, overrides]);
 
   if (loading) return <div className="text-center text-text-secondary py-20 text-sm">Loading…</div>;
   if (all.length === 0)  return <EmptyState />;

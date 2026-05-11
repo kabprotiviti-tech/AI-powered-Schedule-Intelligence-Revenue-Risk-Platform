@@ -26,13 +26,13 @@ function ActivitiesView() {
   const sp = useSearchParams();
   const filterParam = (sp.get("filter") as Filter) ?? "all";
   const titleParam  = sp.get("title") ?? "";
-  const { selected, all, loading } = useSchedule();
+  const { selected, all, loading, overrides } = useSchedule();
   const [q, setQ] = useState("");
 
   const data = useMemo(() => {
     const pool = selected.length > 0 ? selected : all;
     if (pool.length === 0) return null;
-    const portfolio = getPortfolio(pool);
+    const portfolio = getPortfolio(pool, overrides);
     const analytics = portfolio.analytics;
     const allActs = pool.flatMap((s) => s.activities);
 

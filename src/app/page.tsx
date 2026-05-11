@@ -25,13 +25,13 @@ const ragColors = {
 } as const;
 
 export default function PortfolioPage() {
-  const { selected, all, loading } = useSchedule();
+  const { selected, all, loading, overrides } = useSchedule();
   const { persona } = usePersona();
   const copy = PERSONA_COPY[persona];
 
   const portfolio = useMemo(
-    () => selected.length > 0 ? getPortfolio(selected) : null,
-    [selected],
+    () => selected.length > 0 ? getPortfolio(selected, overrides) : null,
+    [selected, overrides],
   );
 
   if (loading) return <div className="text-center text-text-secondary py-20 text-sm">Loading…</div>;

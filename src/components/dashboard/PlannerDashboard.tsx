@@ -90,7 +90,10 @@ export function PlannerDashboard({ schedule, analytics }: { schedule: Schedule; 
       </div>
 
       {/* Project snapshot */}
-      <ProjectSnapshotPanel snapshot={analytics.snapshot} />
+      <ProjectSnapshotPanel
+        snapshot={analytics.snapshot}
+        scheduleId={schedule.id.startsWith("__portfolio__") ? undefined : schedule.id}
+      />
 
       {/* Achievability — most useful for planners since it lists problem activities with reasons */}
       <AchievabilityPanel schedule={schedule} achievability={analytics.achievability} />

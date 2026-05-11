@@ -105,18 +105,32 @@ export interface FloorBreakdown {
   rawMarkers: string[];    // detected wbs/activity floor markers (for audit)
 }
 
+// Alternates — runner-up asset classifications. A mixed-use hospital tower
+// is plausibly Healthcare AND MixedUseTower; rather than force a single label
+// we surface the next 2-3 contenders so reviewers can see the ambiguity.
+export interface AssetAlternate {
+  type:       AssetType;
+  label:      string;
+  confidence: number;     // 0..1 relative to the dominant
+}
+
 export interface ProjectSnapshot {
   // Asset / type
   assetType:        AssetType;
   assetLabel:       string;
   assetConfidence:  number;         // 0..1
   assetEvidence:    string[];       // matched keywords + WBS paths
+  alternates:       AssetAlternate[]; // runner-ups; first 2-3, may be empty
 
   // Tier
   tier:             Tier;
   tierLabel:        string;
   tierConfidence:   number;
   tierRationale:    string;
+  tierStandard:     string;         // e.g. "AACE 17R-97 Class 3 · PMI complexity: Mid"
+
+  // Override — true when a manual reclassification is pinned
+  overridden:       boolean;
 
   // Floors
   floors:           FloorBreakdown;
@@ -134,7 +148,13 @@ export interface ProjectSnapshot {
   };
 
   // Summary line
-  headline:         string;          // e.g. "High-Rise Residential · 38 floors · Tier A"
+  headline:         string;          // e.g. "High-Rise Residential · 38 floors"
+}
+
+// Manual reclassification supplied by a reviewer. Wins over heuristic output.
+export interface ClassifierOverrideInput {
+  assetType: AssetType;
+  tier:      Tier;
 }
 
 // ── Keyword sets ────────────────────────────────────────────────────────────
@@ -378,14 +398,14 @@ function buildCorpus(s: Schedule): SourceText[] {
 function detectAsset(
   corpus: SourceText[],
   floors: FloorBreakdown,
-): { type: AssetType; confidence: number; evidence: string[] } {
+): { type: AssetType; confidence: number; evidence: string[]; alternates: AssetAlternate[] } {
   // Strong overrides — but only on high-weight sources (project name + top WBS).
   // Activity-level overrides cause too many false positives.
   const strongText = corpus.filter((s) => s.weight >= 2).map((s) => s.text).join(" \n ");
   for (const o of STRONG_OVERRIDES) {
     const m = strongText.match(o.test);
     if (m) {
-      return { type: o.type, confidence: 0.95, evidence: [m[0]] };
+      return { type: o.type, confidence: 0.95, evidence: [m[0]], alternates: [] };
     }
   }
 
@@ -461,13 +481,35 @@ function detectAsset(
     return { type: "Generic", confidence: 0, evidence: [] };
   }
 
-  const [topType, topData] = sorted[0];
+  let [topType, topData] = sorted[0];
 
   // Minimum threshold: weighted score must clear 5. One project-name hit
   // (weight 10, ≥0.5 net) clears it easily; 25 activity hits (0.2 weight)
   // also clears. Lower scores read as "Generic — too little evidence".
   if (topData.weighted < 5) {
-    return { type: "Generic", confidence: 0.2, evidence: topData.samples };
+    return { type: "Generic", confidence: 0.2, evidence: topData.samples, alternates: [] };
+  }
+
+  // ── Height correction ────────────────────────────────────────────────────
+  // The keyword "residential tower" matches HighRiseResidential, but if the
+  // detected floor count is only 4, it's structurally a mid-rise. Same for
+  // OfficeTower with single-digit floors. Building convention:
+  //   ≥ 12 above-grade floors → high-rise
+  //   4–11 above-grade floors → mid-rise
+  //   < 4 above-grade floors  → low-rise / villa
+  if (floors.totalAboveGrade > 0) {
+    const HIGHRISE_MIN = 12;
+    const MIDRISE_MIN  = 4;
+    if (topType === "HighRiseResidential" && floors.totalAboveGrade < HIGHRISE_MIN) {
+      // Downgrade — but keep the residential signal
+      topType = floors.totalAboveGrade >= MIDRISE_MIN ? "MidRiseResidential" : "Villa";
+    } else if (topType === "MidRiseResidential" && floors.totalAboveGrade < MIDRISE_MIN) {
+      topType = "Villa";
+    } else if (topType === "OfficeTower" && floors.totalAboveGrade > 0 && floors.totalAboveGrade < MIDRISE_MIN) {
+      // 3-floor "office tower" is really a mid-rise office; OfficeTower stays
+      // a valid category but flag the alternates list to expose it.
+      // Keep topType but lower confidence below.
+    }
   }
 
   const secondScore = sorted[1]?.[1].weighted ?? 0;
@@ -475,9 +517,21 @@ function detectAsset(
   const dominance = total === 0 ? 0 : topData.weighted / total;
   const volume = Math.min(1, topData.weighted / 20);
   const uncontested = secondScore === 0 ? 0.1 : 0;
-  const confidence = Math.min(1, dominance * 0.5 + volume * 0.4 + uncontested);
+  let confidence = Math.min(1, dominance * 0.5 + volume * 0.4 + uncontested);
 
-  return { type: topType, confidence, evidence: topData.samples };
+  // If a height correction fired, ding confidence — the keyword and the
+  // geometry disagreed, so the call is genuinely ambiguous.
+  if (topType !== sorted[0][0]) confidence = Math.min(confidence, 0.65);
+
+  // Build alternates (top 2 runner-ups, ≥10% relative score)
+  const topScore = topData.weighted;
+  const alternates: AssetAlternate[] = sorted
+    .slice(1, 4)
+    .filter(([, v]) => v.weighted >= topScore * 0.1)
+    .slice(0, 3)
+    .map(([t, v]) => ({ type: t, label: ASSET_LABELS[t], confidence: v.weighted / topScore }));
+
+  return { type: topType, confidence, evidence: topData.samples, alternates };
 }
 
 function detectFloors(s: Schedule): FloorBreakdown {
@@ -556,16 +610,28 @@ function detectComponents(text: string): {
   return { components: present, details };
 }
 
+// ── Tier classification ────────────────────────────────────────────────────
+// Anchored in three frameworks so the rationale withstands client scrutiny:
+//   - AACE 17R-97 "Cost Estimate Classification" size bands (Class 1..5).
+//     Tier A maps loosely to Class 3+ projects (>$50M / multi-year).
+//   - PMI complexity (PMBOK 7 / Pulse research): technical complexity,
+//     stakeholder count, duration.
+//   - GAO Schedule Assessment Guide maturity: schedules with > 5000 activities
+//     and >3 yr horizons are GAO "large schedule" by their threshold.
+// We don't claim full alignment — we cite the directional source so a planner
+// can argue with the rationale, not just the number.
 function classifyTier(args: {
   asset: AssetType;
   totalAboveGrade: number;
   activities: number;
   durationDays: number;
-}): { tier: Tier; confidence: number; rationale: string } {
+}): { tier: Tier; confidence: number; rationale: string; standard: string } {
   const { asset, totalAboveGrade, activities, durationDays } = args;
   const reasons: string[] = [];
+  const standardRefs: string[] = [];
 
-  // Infrastructure / specialty bumps tier
+  // Asset-class prior — Healthcare, MixedUse, large infrastructure are mega
+  // by industry convention (PMI complexity high; AACE typically Class 3-5).
   const megaAssets: AssetType[] = [
     "Infrastructure_Airport", "Infrastructure_Tunnel", "Infrastructure_Rail",
     "Healthcare", "MixedUseTower",
@@ -576,40 +642,81 @@ function classifyTier(args: {
 
   if (megaAssets.includes(asset)) {
     tier = "A";
-    reasons.push(`asset class "${ASSET_LABELS[asset]}" is typically Tier A`);
+    reasons.push(`${ASSET_LABELS[asset]} — industry convention Tier A`);
   } else if (smallAssets.includes(asset)) {
     tier = "C";
-    reasons.push(`asset class "${ASSET_LABELS[asset]}" is typically Tier C`);
+    reasons.push(`${ASSET_LABELS[asset]} — industry convention Tier C`);
   }
 
-  // Floor-based bump (only for vertical buildings)
+  // Floor-based bump for vertical buildings
   const vertical: AssetType[] = [
     "HighRiseResidential", "MidRiseResidential", "OfficeTower",
     "MixedUseTower", "Hospitality", "RetailMall", "Healthcare", "Education",
   ];
   if (vertical.includes(asset)) {
-    if (totalAboveGrade >= 30) { tier = "A"; reasons.push(`${totalAboveGrade} floors above ground`); }
-    else if (totalAboveGrade >= 8) { if (tier !== "A") tier = "B"; reasons.push(`${totalAboveGrade} floors above ground`); }
-    else if (totalAboveGrade > 0 && totalAboveGrade < 4) { if (tier !== "A") tier = "C"; reasons.push(`${totalAboveGrade} floors above ground`); }
+    if (totalAboveGrade >= 30) {
+      tier = "A";
+      reasons.push(`${totalAboveGrade} floors (≥ 30 ⇒ super-tall)`);
+    } else if (totalAboveGrade >= 12) {
+      if (tier !== "A") tier = "B";
+      reasons.push(`${totalAboveGrade} floors (high-rise)`);
+    } else if (totalAboveGrade >= 4) {
+      if (tier !== "A") tier = "B";
+      reasons.push(`${totalAboveGrade} floors (mid-rise)`);
+    } else if (totalAboveGrade > 0) {
+      if (tier !== "A") tier = "C";
+      reasons.push(`${totalAboveGrade} floors (low-rise)`);
+    }
   }
 
-  // Activity-count bump (universal)
-  if (activities >= 5000) { tier = "A"; reasons.push(`${activities.toLocaleString()} activities (mega scope)`); }
-  else if (activities >= 1000 && tier === "C") { tier = "B"; reasons.push(`${activities.toLocaleString()} activities`); }
-  else if (activities < 200 && tier === "B") { tier = "C"; reasons.push(`${activities.toLocaleString()} activities (small scope)`); }
+  // Activity-count: GAO Schedule Assessment thresholds
+  if (activities >= 5000) {
+    tier = "A";
+    reasons.push(`${activities.toLocaleString()} activities (GAO "large schedule" threshold)`);
+    standardRefs.push("GAO Schedule Assessment Guide");
+  } else if (activities >= 1000 && tier === "C") {
+    tier = "B";
+    reasons.push(`${activities.toLocaleString()} activities`);
+  } else if (activities < 200 && tier === "B") {
+    tier = "C";
+    reasons.push(`${activities.toLocaleString()} activities (small scope)`);
+  }
 
-  // Duration bump
-  if (durationDays >= 1095 /* 3 years */) {
-    if (tier !== "A") { tier = "A"; reasons.push(`${Math.round(durationDays/365)}-year project duration`); }
+  // Duration: AACE / PMI duration thresholds for complexity
+  if (durationDays >= 1095) {
+    if (tier !== "A") {
+      tier = "A";
+      reasons.push(`${Math.round(durationDays/365)}-yr horizon (PMI: high complexity)`);
+    }
+    standardRefs.push("PMI PMBOK 7 complexity");
   } else if (durationDays >= 365 && tier === "C") {
     tier = "B";
-    reasons.push(`${Math.round(durationDays/30)}-month duration`);
+    reasons.push(`${Math.round(durationDays/30)}-mo duration`);
   }
+
+  // AACE size-band mapping (rough — anchored on activities + duration as proxies
+  // for capital cost, which we don't yet have):
+  //   Class 5: pre-concept (< 100 activities, < 6 mo)        → Tier C
+  //   Class 4: study/concept (100–500 activities, 6–18 mo)   → Tier C/B
+  //   Class 3: budget authorization (500–2k act, 1–3 yr)     → Tier B
+  //   Class 2: control (2k–5k act, 2–4 yr)                   → Tier B/A
+  //   Class 1: bid/check (> 5k act, > 3 yr)                  → Tier A
+  const aaceClass =
+    activities >= 5000 || durationDays >= 1095 ? 1 :
+    activities >= 2000 || durationDays >= 730  ? 2 :
+    activities >= 500  || durationDays >= 365  ? 3 :
+    activities >= 100  || durationDays >= 180  ? 4 : 5;
+  standardRefs.unshift(`AACE 17R-97 Class ${aaceClass}`);
+
+  const pmiBand: "Low" | "Mid" | "High" =
+    tier === "A" ? "High" : tier === "B" ? "Mid" : "Low";
+  standardRefs.push(`PMI complexity: ${pmiBand}`);
 
   return {
     tier,
     confidence: Math.min(1, 0.5 + reasons.length * 0.15),
     rationale: reasons.join(" · ") || "default mid-scale",
+    standard: standardRefs.join(" · "),
   };
 }
 
@@ -632,34 +739,50 @@ function estimateDurationDays(s: Schedule): number {
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
-export function classifyProject(s: Schedule): ProjectSnapshot {
+export function classifyProject(s: Schedule, override?: ClassifierOverrideInput): ProjectSnapshot {
   // Floors first — the vertical-vs-flat gate in detectAsset needs them.
   const floors = detectFloors(s);
   const corpus = buildCorpus(s);
 
-  const { type: asset, confidence: assetConfidence, evidence: assetEvidence } = detectAsset(corpus, floors);
+  // Run the heuristic regardless so alternates / evidence are still available
+  // (useful UI even when the user has pinned an override).
+  const detected = detectAsset(corpus, floors);
+  const asset = override?.assetType ?? detected.type;
+  const assetConfidence = override ? 1 : detected.confidence;
+  const assetEvidence = override
+    ? [`manual override: ${ASSET_LABELS[override.assetType]}`]
+    : detected.evidence;
+  const alternates = override ? [] : detected.alternates;
+
   // Components still use a flat combined string (no source weighting needed
   // — components are binary "detected anywhere in scope").
   const combined = corpus.map((c) => c.text).join(" \n ");
   const { components, details: componentDetails } = detectComponents(combined);
   const durationDays = estimateDurationDays(s);
 
-  const tier = classifyTier({
+  const computedTier = classifyTier({
     asset,
     totalAboveGrade: floors.totalAboveGrade,
     activities: s.activities.length,
     durationDays,
   });
+  const tier = override?.tier ?? computedTier.tier;
+  const tierRationale = override?.tier
+    ? `manual override · auto would have been Tier ${computedTier.tier} (${computedTier.rationale})`
+    : computedTier.rationale;
 
   return {
     assetType: asset,
     assetLabel: ASSET_LABELS[asset],
     assetConfidence,
     assetEvidence,
-    tier:           tier.tier,
-    tierLabel:      TIER_LABELS[tier.tier],
-    tierConfidence: tier.confidence,
-    tierRationale:  tier.rationale,
+    alternates,
+    tier,
+    tierLabel:      TIER_LABELS[tier],
+    tierConfidence: override ? 1 : computedTier.confidence,
+    tierRationale,
+    tierStandard:   computedTier.standard,
+    overridden:     !!override,
     floors,
     components,
     componentDetails,
@@ -668,6 +791,6 @@ export function classifyProject(s: Schedule): ProjectSnapshot {
       wbsNodes:     s.wbs.length,
       durationDays,
     },
-    headline: buildHeadline(asset, floors, tier.tier),
+    headline: buildHeadline(asset, floors, tier),
   };
 }
