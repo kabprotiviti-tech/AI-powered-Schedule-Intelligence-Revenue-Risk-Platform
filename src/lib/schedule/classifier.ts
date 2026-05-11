@@ -202,12 +202,18 @@ const ASSET_KEYWORDS: Record<AssetType, RegExp[]> = {
   Generic: [],
 };
 
-// Strong signals that override otherwise ambiguous matches
+// Strong signals that override otherwise ambiguous matches.
+// Patterns are tightened to require asset-context anchors so common English
+// words ("OR", "key milestones") don't trigger false classifications.
 const STRONG_OVERRIDES: { test: RegExp; type: AssetType }[] = [
-  { test: /\b\d+\s+key(s)?\b/i,                      type: "Hospitality" },          // "350 keys"
-  { test: /\b(OR|ICU|operating\s+theatre)\b/i,       type: "Healthcare" },
+  // "350 keys" only counts when adjacent to hotel context, not "12 key milestones"
+  { test: /\b\d+\s+keys?\s+(hotel|resort|hospitality|room|suite)|\b(hotel|resort)\s+\d+\s+keys?\b/i, type: "Hospitality" },
+  // ICU / operating theatre only — bare "OR" was matching the English conjunction
+  { test: /\b(ICU|NICU|PICU|operating\s+theatre|operating\s+room|surgical\s+suite)\b/i, type: "Healthcare" },
+  // OR with a number suffix (OR-1, OR1, OR 5) — actual operating-room codes
+  { test: /\bOR[-\s]?\d+\b/,                         type: "Healthcare" },
   { test: /\b(runway|apron|taxiway)\b/i,             type: "Infrastructure_Airport" },
-  { test: /\b(jetty|breakwater|quay)\b/i,            type: "Infrastructure_Marine" },
+  { test: /\b(jetty|breakwater|quay\s+wall)\b/i,     type: "Infrastructure_Marine" },
   { test: /\b(viaduct|cable[-\s]stayed)\b/i,         type: "Infrastructure_Bridge" },
   { test: /\b(TBM|tunnel\s+boring)\b/i,              type: "Infrastructure_Tunnel" },
 ];
@@ -226,17 +232,23 @@ const COMPONENT_KEYWORDS: Record<Component, RegExp> = {
 };
 
 // ── Floor markers ──────────────────────────────────────────────────────────
+// Patterns require explicit anchors (Level/Floor/Lvl/L##/F##) so activity text
+// like "F4 grade concrete" or "Pour L2 slab section" doesn't pollute floor counts.
+// "Bare F" / "bare L" without a digit-anchor pattern is rejected.
 const FLOOR_PATTERNS: { re: RegExp; bucket: "basement" | "podium" | "ground" | "mezz" | "typical" | "penthouse" | "roof" }[] = [
-  { re: /\b(b|bsmt|basement)[\s\-_]?\d+\b/i,            bucket: "basement" },
-  { re: /\b(p|podium)[\s\-_]?\d+\b/i,                   bucket: "podium" },
-  { re: /\b(gf|g\.f|ground\s+floor|level\s*0|l0+)\b/i,  bucket: "ground" },
-  { re: /\b(mezz(anine)?|mf|m\.f)\b/i,                  bucket: "mezz" },
-  { re: /\b(penthouse|ph)\b/i,                          bucket: "penthouse" },
-  { re: /\b(roof|rt|roof\s+top|crown)\b/i,              bucket: "roof" },
-  // Typical floors — L01..L99, Floor 1..99, F01..F99, 1F..99F
-  { re: /\b(l|level|floor|fl|f)[\s\-_]?(\d{1,3})\b/i,    bucket: "typical" },
-  { re: /\b(\d{1,3})(st|nd|rd|th)?\s*floor\b/i,          bucket: "typical" },
-  { re: /\b(\d{1,3})f\b/i,                              bucket: "typical" },
+  { re: /\b(bsmt|basement)[\s\-_]?\d{1,2}\b/i,                bucket: "basement" },
+  { re: /\bB[\s\-_]?(\d{1,2})\b/,                              bucket: "basement" },   // case-sensitive B1/B-1
+  { re: /\bpodium[\s\-_]?\d{1,2}\b/i,                          bucket: "podium" },
+  { re: /\bP[\s\-_]?(\d{1,2})\b/,                              bucket: "podium" },     // case-sensitive P1/P-1
+  { re: /\b(gf|g\.f\.?|ground\s+floor)\b/i,                    bucket: "ground" },
+  { re: /\b(mezzanine|mezz)\b/i,                               bucket: "mezz" },
+  { re: /\b(penthouse|pent[-\s]?house)\b/i,                    bucket: "penthouse" },
+  { re: /\b(roof\s+top|rooftop|roof\s+level|roof\s+slab)\b/i,  bucket: "roof" },
+  // Typical floors — must be explicit: "Level 12", "Lvl 12", "L12", "L-12", "L_12", "12F", "Floor 12", "12th floor"
+  { re: /\b(level|lvl|floor)[\s\-_]+(\d{1,2})\b/i,             bucket: "typical" },
+  { re: /\bL[\s\-_]?(\d{1,2})\b/,                              bucket: "typical" },   // case-sensitive L01/L-12
+  { re: /\b(\d{1,2})(st|nd|rd|th)\s+floor\b/i,                 bucket: "typical" },
+  { re: /\b(\d{1,2})F\b/,                                      bucket: "typical" },   // case-sensitive 12F
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -263,7 +275,7 @@ function detectAsset(text: string): { type: AssetType; confidence: number; evide
   for (const o of STRONG_OVERRIDES) {
     const m = text.match(o.test);
     if (m) {
-      return { type: o.type, confidence: 0.92, evidence: [`strong:${m[0]}`] };
+      return { type: o.type, confidence: 0.92, evidence: [m[0]] };
     }
   }
 
@@ -293,8 +305,15 @@ function detectAsset(text: string): { type: AssetType; confidence: number; evide
   const secondCount = sorted[1]?.[1]?.count ?? 0;
   const total = sorted.reduce((s, [, v]) => s + v.count, 0);
   const dominance = total === 0 ? 0 : topData.count / total;
-  // Confidence: dominance + bonus when very few competing types
-  const confidence = Math.min(1, 0.4 + dominance * 0.6 + (secondCount === 0 ? 0.1 : 0));
+
+  // Confidence has three components, all 0..1, combined multiplicatively-ish:
+  //   - dominance: how much of the evidence points at the top type
+  //   - volume:    absolute match count, saturating around 12 hits
+  //   - uncontested bonus: small bump when no other type fired
+  // Floor is 0 so a single weak hit can read as "low confidence" in the UI.
+  const volume = Math.min(1, topData.count / 12);
+  const uncontested = secondCount === 0 ? 0.1 : 0;
+  const confidence = Math.min(1, dominance * 0.55 + volume * 0.35 + uncontested);
 
   return { type: topType, confidence, evidence: topData.matches };
 }
@@ -311,35 +330,38 @@ function detectFloors(s: Schedule): FloorBreakdown {
   };
   const seenFlags = { ground: false, mezz: false, penthouse: false, roof: false };
 
+  // Tokenize text on whitespace and inspect each token; first matching pattern
+  // wins per token so "L0" doesn't get counted as both ground AND typical floor 0.
   const inspect = (txt: string) => {
-    for (const { re, bucket } of FLOOR_PATTERNS) {
-      const m = txt.match(re);
-      if (!m) continue;
-      if (bucket === "ground")      seenFlags.ground    = true;
-      else if (bucket === "mezz")   seenFlags.mezz      = true;
-      else if (bucket === "penthouse") seenFlags.penthouse = true;
-      else if (bucket === "roof")   seenFlags.roof      = true;
-      else {
-        // numbered: extract the number
-        const numStr = m[2] ?? m[1];
-        const n = parseInt(numStr, 10);
-        if (!isNaN(n) && n >= 0 && n < 200) {
-          seenLevels[bucket].add(n);
-          if (breakdown.rawMarkers.length < 20) breakdown.rawMarkers.push(m[0]);
+    if (!txt) return;
+    const tokens = txt.split(/[\s,;:|/()]+/);
+    for (const tok of tokens) {
+      for (const { re, bucket } of FLOOR_PATTERNS) {
+        const m = tok.match(re);
+        if (!m) continue;
+        if (bucket === "ground")         seenFlags.ground    = true;
+        else if (bucket === "mezz")      seenFlags.mezz      = true;
+        else if (bucket === "penthouse") seenFlags.penthouse = true;
+        else if (bucket === "roof")      seenFlags.roof      = true;
+        else {
+          const numStr = m[2] ?? m[1];
+          const n = parseInt(numStr, 10);
+          if (!isNaN(n) && n >= 0 && n < 100) {
+            seenLevels[bucket].add(n);
+            if (breakdown.rawMarkers.length < 20) breakdown.rawMarkers.push(m[0]);
+          }
         }
+        break; // first matching bucket wins for this token
       }
     }
   };
 
-  // WBS first — more reliable than activities
+  // WBS only — activity-name text is too noisy ("F4 grade concrete", "L2 cabling
+  // test") and produced false floor markers. WBS structure is where planners
+  // actually encode the building geometry.
   for (const w of s.wbs) {
     inspect(w.name);
     inspect(w.code);
-  }
-  // Activities (limit for performance)
-  const ACT_LIMIT = 3000;
-  for (let i = 0; i < Math.min(ACT_LIMIT, s.activities.length); i++) {
-    inspect(s.activities[i].name);
   }
 
   breakdown.basements    = seenLevels.basement.size;
@@ -429,15 +451,15 @@ function classifyTier(args: {
   };
 }
 
-function buildHeadline(asset: AssetType, floors: FloorBreakdown, tier: Tier): string {
-  const parts: string[] = [];
-  parts.push(ASSET_LABELS[asset]);
+function buildHeadline(asset: AssetType, floors: FloorBreakdown, _tier: Tier): string {
+  // Tier intentionally omitted — the snapshot panel renders it as a separate
+  // banner; duplicating it in the headline added noise.
+  const parts: string[] = [ASSET_LABELS[asset]];
   if (floors.totalAboveGrade > 0) {
     let f = `${floors.totalAboveGrade} floor${floors.totalAboveGrade === 1 ? "" : "s"}`;
     if (floors.basements > 0) f += ` + ${floors.basements}B`;
     parts.push(f);
   }
-  parts.push(`Tier ${tier}`);
   return parts.join(" · ");
 }
 
