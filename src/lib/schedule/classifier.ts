@@ -15,7 +15,17 @@
 //   - Tier thresholds derived from AACE 17R-97 estimate-class size bands
 //   - Component segmentation aligns with NRM 1 cost-plan elemental hierarchy
 
-import type { Schedule, ScheduleActivity, WBSNode } from "./types";
+import type { Schedule } from "./types";
+
+// ── Source-weighted corpus ─────────────────────────────────────────────────
+// Different parts of a schedule carry different signal quality:
+//   project name / code  → curated, intentional, high signal
+//   top-level WBS        → scope decomposition, planner-authored
+//   deep WBS / activities → operational detail, noisy
+// Each text gets a weight; weighted match counts beat raw match counts because
+// 200 activity hits on "junction box" (electrical) should not outweigh one
+// project-name hit on "Residential Tower".
+type SourceText = { text: string; weight: number };
 
 // ── Asset type taxonomy ─────────────────────────────────────────────────────
 export type AssetType =
@@ -202,6 +212,66 @@ const ASSET_KEYWORDS: Record<AssetType, RegExp[]> = {
   Generic: [],
 };
 
+// ── Suppression patterns ───────────────────────────────────────────────────
+// Each asset type has phrases that, when matched, indicate the keyword is
+// being used in a *non-asset* context — typically a sub-feature of a building
+// rather than the building's primary type. Suppressed matches are subtracted
+// from that asset's raw hit count before weighting.
+//
+// This is the core fix for the "8-floor schedule classified as highway" bug:
+// every building has "internal road", "junction box", "loading dock", and
+// those should not fire infrastructure classifications.
+const SUPPRESS_CONTEXT: Partial<Record<AssetType, RegExp[]>> = {
+  Infrastructure_Road: [
+    /\b(internal|service|access|site|perimeter|fire|emergency|loop|spine|main|ring|approach)\s+road\b/i,
+    /\b(electrical\s+)?junction\s+box(es)?\b/i,
+    /\bj[-\s]?box\b/i,
+    /\b(road|kerb|curb)\s+stones?\b/i,
+    /\bdriveway\s+(asphalt|paving)\b/i,
+  ],
+  Infrastructure_Marine: [
+    /\bloading\s+(dock|bay)s?\b/i,
+    /\bdock\s+(leveler|leveller|seal|shelter)\b/i,
+    /\bpool\s+deck\b/i,
+  ],
+  Infrastructure_Tunnel: [
+    /\b(mep|service|cable|utility|escape|access|pedestrian)\s+tunnel\b/i,
+    /\bpedestrian\s+underpass\b/i,
+  ],
+  Infrastructure_Airport: [
+    /\b(bus|ferry|cruise|cable\s+car|metro|train|coach)\s+terminal\b/i,
+    /\bterminal\s+(equipment|block|unit|box)\b/i,
+  ],
+  Infrastructure_Rail: [
+    /\bcable\s+tray\b/i,
+    /\b(stair|hand|guard|safety)\s+rail\b/i,
+    /\bcurtain\s+track\b/i,
+  ],
+  Infrastructure_Bridge: [
+    /\bpedestrian\s+(bridge|link)\b/i,
+    /\b(footbridge|skybridge|sky\s+bridge|link\s+bridge)\b/i,
+  ],
+  Healthcare: [
+    /\b(prayer|wellness|staff|fitness|first\s+aid)\s+(room|clinic|center|centre)\b/i,
+    /\bmedical\s+room\b/i,
+  ],
+  Cultural: [
+    /\bprayer\s+room\b/i,
+  ],
+  Utility: [
+    /\b(building|main|electrical|mv|hv|lv)\s+substation\b/i,
+    /\b(chiller|district\s+cooling|cooling)\s+plant\s+room\b/i,
+    /\b(domestic|booster)\s+pumping\s+station\b/i,
+  ],
+  Education: [
+    /\btraining\s+room\b/i,
+    /\bschool\s+furniture\b/i,
+  ],
+  Industrial: [
+    /\b(plant|equipment)\s+room\b/i,
+  ],
+};
+
 // Strong signals that override otherwise ambiguous matches.
 // Patterns are tightened to require asset-context anchors so common English
 // words ("OR", "key milestones") don't trigger false classifications.
@@ -251,71 +321,163 @@ const FLOOR_PATTERNS: { re: RegExp; bucket: "basement" | "podium" | "ground" | "
   { re: /\b(\d{1,2})F\b/,                                      bucket: "typical" },   // case-sensitive 12F
 ];
 
+// ── Asset-type groupings for the vertical-vs-flat gate ─────────────────────
+const BUILDING_TYPES: AssetType[] = [
+  "HighRiseResidential", "MidRiseResidential", "Villa", "OfficeTower",
+  "MixedUseTower", "RetailMall", "Hospitality", "Industrial",
+  "Healthcare", "Education", "Government", "Cultural",
+];
+const FLAT_INFRA_TYPES: AssetType[] = [
+  "Infrastructure_Road", "Infrastructure_Bridge", "Infrastructure_Tunnel",
+  "Infrastructure_Airport", "Infrastructure_Marine", "Infrastructure_Rail",
+  "Utility", "Landscape",
+];
+
 // ── Helpers ────────────────────────────────────────────────────────────────
-function corpus(s: Schedule): { texts: string[]; combined: string } {
-  const texts: string[] = [];
-  texts.push(s.project.name);
-  texts.push(s.project.code);
+// Build a source-weighted corpus. Each text fragment carries the weight of
+// its origin (project name = 10, top WBS = 5, deep WBS = 1, activity = 0.2).
+// This is what stops a few "internal road" activities outweighing a clear
+// "Residential Tower" project name.
+function buildCorpus(s: Schedule): SourceText[] {
+  const out: SourceText[] = [];
+  if (s.project.name) out.push({ text: s.project.name, weight: 10 });
+  if (s.project.code) out.push({ text: s.project.code, weight: 5 });
+
+  // Compute WBS depth via parent chain
+  const byId = new Map(s.wbs.map((w) => [w.id, w]));
+  const depthCache = new Map<string, number>();
+  const depthOf = (id: string): number => {
+    const cached = depthCache.get(id);
+    if (cached !== undefined) return cached;
+    const node = byId.get(id);
+    if (!node || !node.parentId || !byId.has(node.parentId)) {
+      depthCache.set(id, 0);
+      return 0;
+    }
+    const d = 1 + depthOf(node.parentId);
+    depthCache.set(id, d);
+    return d;
+  };
   for (const w of s.wbs) {
-    texts.push(w.name);
-    texts.push(w.code);
+    const d = depthOf(w.id);
+    const weight = d <= 1 ? 5 : d <= 3 ? 2 : 1;
+    if (w.name) out.push({ text: w.name, weight });
+    if (w.code) out.push({ text: w.code, weight: weight * 0.4 });
   }
-  // Use up to first 2000 activities to keep this fast for huge schedules
+
+  // Activity names — capped, low weight. Activity codes are skipped (they're
+  // mostly opaque IDs and contribute pure noise).
   const ACT_LIMIT = 2000;
   for (let i = 0; i < Math.min(ACT_LIMIT, s.activities.length); i++) {
     const a = s.activities[i];
-    texts.push(a.name);
-    texts.push(a.code);
+    if (a.name) out.push({ text: a.name, weight: 0.2 });
   }
-  return { texts, combined: texts.join(" \n ") };
+  return out;
 }
 
-function detectAsset(text: string): { type: AssetType; confidence: number; evidence: string[] } {
-  // Strong overrides first
+function detectAsset(
+  corpus: SourceText[],
+  floors: FloorBreakdown,
+): { type: AssetType; confidence: number; evidence: string[] } {
+  // Strong overrides — but only on high-weight sources (project name + top WBS).
+  // Activity-level overrides cause too many false positives.
+  const strongText = corpus.filter((s) => s.weight >= 2).map((s) => s.text).join(" \n ");
   for (const o of STRONG_OVERRIDES) {
-    const m = text.match(o.test);
+    const m = strongText.match(o.test);
     if (m) {
-      return { type: o.type, confidence: 0.92, evidence: [m[0]] };
+      return { type: o.type, confidence: 0.95, evidence: [m[0]] };
     }
   }
 
-  const scores: Partial<Record<AssetType, { count: number; matches: string[] }>> = {};
-  for (const [type, regexes] of Object.entries(ASSET_KEYWORDS) as [AssetType, RegExp[]][]) {
-    let count = 0;
-    const matches: string[] = [];
-    for (const re of regexes) {
-      const found = text.match(new RegExp(re.source, re.flags + "g"));
-      if (found) {
-        count += found.length;
-        for (const m of found.slice(0, 3)) matches.push(m);
+  // Weighted scoring with per-source suppression
+  const scores: Partial<Record<AssetType, { weighted: number; rawHits: number; samples: string[] }>> = {};
+
+  for (const src of corpus) {
+    for (const [type, regexes] of Object.entries(ASSET_KEYWORDS) as [AssetType, RegExp[]][]) {
+      if (regexes.length === 0) continue;
+
+      let hits = 0;
+      const localSamples: string[] = [];
+      for (const re of regexes) {
+        const found = src.text.match(new RegExp(re.source, re.flags + "g"));
+        if (found) {
+          hits += found.length;
+          for (const h of found.slice(0, 2)) localSamples.push(h);
+        }
       }
+      if (hits === 0) continue;
+
+      // Subtract suppression matches in the same source text
+      const suppressors = SUPPRESS_CONTEXT[type] ?? [];
+      let suppressed = 0;
+      for (const sre of suppressors) {
+        const sfound = src.text.match(new RegExp(sre.source, sre.flags + "g"));
+        if (sfound) suppressed += sfound.length;
+      }
+      const netHits = Math.max(0, hits - suppressed);
+      if (netHits === 0) continue;
+
+      const entry = scores[type] ?? { weighted: 0, rawHits: 0, samples: [] };
+      entry.weighted += netHits * src.weight;
+      entry.rawHits += netHits;
+      for (const s of localSamples) {
+        if (entry.samples.length >= 5) break;
+        if (!entry.samples.includes(s)) entry.samples.push(s);
+      }
+      scores[type] = entry;
     }
-    if (count > 0) scores[type] = { count, matches };
   }
 
-  // Sort by hit count
-  const sorted = Object.entries(scores).sort((a, b) => (b[1]?.count ?? 0) - (a[1]?.count ?? 0)) as [
-    AssetType,
-    { count: number; matches: string[] },
-  ][];
+  // ── Vertical-vs-flat gate ────────────────────────────────────────────────
+  // If there is *any* building-side evidence, flat-infrastructure types
+  // (road / bridge / tunnel / airport / marine / rail / utility / landscape)
+  // can only win if their weighted score dominates the best building score
+  // by ≥ 3×. Floor counts also count as building evidence — a schedule with
+  // basements or multiple floors is structurally a building, not a road.
+  const bestBuildingScore = Math.max(
+    0,
+    ...BUILDING_TYPES.map((t) => scores[t]?.weighted ?? 0),
+  );
+  const floorEvidence =
+    (floors.totalAboveGrade >= 2 ? 20 : 0) +
+    (floors.basements > 0 ? 15 : 0) +
+    (floors.podiumLevels > 0 ? 10 : 0);
+  const buildingFloor = Math.max(bestBuildingScore, floorEvidence);
+
+  if (buildingFloor > 0) {
+    for (const t of FLAT_INFRA_TYPES) {
+      const s = scores[t];
+      if (!s) continue;
+      if (s.weighted < buildingFloor * 3) delete scores[t];
+    }
+  }
+
+  // Rank survivors
+  const sorted = (Object.entries(scores) as [AssetType, NonNullable<typeof scores[AssetType]>][])
+    .filter(([, v]) => v !== undefined)
+    .sort((a, b) => b[1].weighted - a[1].weighted);
+
   if (sorted.length === 0) {
     return { type: "Generic", confidence: 0, evidence: [] };
   }
+
   const [topType, topData] = sorted[0];
-  const secondCount = sorted[1]?.[1]?.count ?? 0;
-  const total = sorted.reduce((s, [, v]) => s + v.count, 0);
-  const dominance = total === 0 ? 0 : topData.count / total;
 
-  // Confidence has three components, all 0..1, combined multiplicatively-ish:
-  //   - dominance: how much of the evidence points at the top type
-  //   - volume:    absolute match count, saturating around 12 hits
-  //   - uncontested bonus: small bump when no other type fired
-  // Floor is 0 so a single weak hit can read as "low confidence" in the UI.
-  const volume = Math.min(1, topData.count / 12);
-  const uncontested = secondCount === 0 ? 0.1 : 0;
-  const confidence = Math.min(1, dominance * 0.55 + volume * 0.35 + uncontested);
+  // Minimum threshold: weighted score must clear 5. One project-name hit
+  // (weight 10, ≥0.5 net) clears it easily; 25 activity hits (0.2 weight)
+  // also clears. Lower scores read as "Generic — too little evidence".
+  if (topData.weighted < 5) {
+    return { type: "Generic", confidence: 0.2, evidence: topData.samples };
+  }
 
-  return { type: topType, confidence, evidence: topData.matches };
+  const secondScore = sorted[1]?.[1].weighted ?? 0;
+  const total = sorted.reduce((s, [, v]) => s + v.weighted, 0);
+  const dominance = total === 0 ? 0 : topData.weighted / total;
+  const volume = Math.min(1, topData.weighted / 20);
+  const uncontested = secondScore === 0 ? 0.1 : 0;
+  const confidence = Math.min(1, dominance * 0.5 + volume * 0.4 + uncontested);
+
+  return { type: topType, confidence, evidence: topData.samples };
 }
 
 function detectFloors(s: Schedule): FloorBreakdown {
@@ -471,10 +633,14 @@ function estimateDurationDays(s: Schedule): number {
 
 // ── Public API ─────────────────────────────────────────────────────────────
 export function classifyProject(s: Schedule): ProjectSnapshot {
-  const { combined } = corpus(s);
-
-  const { type: asset, confidence: assetConfidence, evidence: assetEvidence } = detectAsset(combined);
+  // Floors first — the vertical-vs-flat gate in detectAsset needs them.
   const floors = detectFloors(s);
+  const corpus = buildCorpus(s);
+
+  const { type: asset, confidence: assetConfidence, evidence: assetEvidence } = detectAsset(corpus, floors);
+  // Components still use a flat combined string (no source weighting needed
+  // — components are binary "detected anywhere in scope").
+  const combined = corpus.map((c) => c.text).join(" \n ");
   const { components, details: componentDetails } = detectComponents(combined);
   const durationDays = estimateDurationDays(s);
 
