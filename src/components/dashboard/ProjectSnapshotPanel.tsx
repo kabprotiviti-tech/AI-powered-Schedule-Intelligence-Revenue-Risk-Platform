@@ -143,10 +143,15 @@ export function ProjectSnapshotPanel({ snapshot, compact, scheduleId }: Props) {
       {/* Detail grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         <Cell label="Asset type"        value={snapshot.assetLabel}                                  hint={`${Math.round(snapshot.assetConfidence * 100)}% confidence`} />
-        <Cell label="Floors above grade" value={snapshot.floors.totalAboveGrade > 0 ? `${snapshot.floors.totalAboveGrade}` : "—"} hint={snapshot.floors.totalAboveGrade > 0 ? floorBreakdown(snapshot.floors) : "no floor markers in WBS"} />
-        <Cell label="Basements"          value={`${snapshot.floors.basements}`}                       hint={snapshot.floors.basements > 0 ? "detected from WBS" : "none detected"} />
+        <Cell label="Floors above grade" value={snapshot.floors.totalAboveGrade > 0 ? `${snapshot.floors.totalAboveGrade}` : "—"} hint={snapshot.floors.totalAboveGrade > 0 ? floorBreakdownLine(snapshot.floors) : "no floor markers in WBS"} />
+        <Cell label="Basements"          value={`${snapshot.floors.basements}`}                       hint={snapshot.floors.basements > 0 ? `${snapshot.floors.basementNumbers.map((n) => `B${n}`).join(", ")}` : "none detected"} />
         <Cell label="Activities"         value={snapshot.scale.activities.toLocaleString()}            hint={`${snapshot.scale.wbsNodes.toLocaleString()} WBS nodes`} />
       </div>
+
+      {/* Floor structure — full audit of what was detected, where */}
+      {!compact && (snapshot.floors.totalAboveGrade > 0 || snapshot.floors.basements > 0) && (
+        <FloorStructureBlock floors={snapshot.floors} />
+      )}
 
       {/* Components / scope strip */}
       {!compact && (
@@ -335,13 +340,129 @@ function ReclassifyPicker({
   );
 }
 
-function floorBreakdown(f: ProjectSnapshot["floors"]): string {
+// One-line breakdown for the "Floors above grade" detail-grid hint.
+function floorBreakdownLine(f: ProjectSnapshot["floors"]): string {
   const parts: string[] = [];
+  if (f.hasLowerGround) parts.push("LG");
   if (f.hasGroundFloor) parts.push("GF");
+  if (f.hasUpperGround) parts.push("UG");
   if (f.podiumLevels)   parts.push(`${f.podiumLevels}×P`);
-  if (f.mezzanines)     parts.push("MZ");
+  if (f.mezzanines)     parts.push(f.mezzanines === 1 ? "MZ" : `${f.mezzanines}×MZ`);
   if (f.typicalFloors)  parts.push(`${f.typicalFloors}×L`);
   if (f.hasPenthouse)   parts.push("PH");
+  if (f.hasPlantLevel)  parts.push("Plant");
   if (f.hasRoof)        parts.push("Roof");
   return parts.join(" + ") || "GF only";
+}
+
+// Compact range formatter: [1,2,3,5,7,8,9] -> "L1–L3, L5, L7–L9"
+function compactRange(prefix: string, nums: number[]): string {
+  if (nums.length === 0) return "";
+  const out: string[] = [];
+  let start = nums[0];
+  let prev = nums[0];
+  for (let i = 1; i <= nums.length; i++) {
+    const n = nums[i];
+    if (n !== prev + 1) {
+      out.push(start === prev ? `${prefix}${start}` : `${prefix}${start}–${prefix}${prev}`);
+      if (n !== undefined) start = n;
+    }
+    if (n !== undefined) prev = n;
+  }
+  return out.join(", ");
+}
+
+// Detailed floor-structure block. Renders one row per floor "stratum"
+// (below-grade / at-grade / mid / habitable / top) with the actual level
+// numbers detected. Below it, an expandable audit list of the WBS nodes
+// that produced each marker. This is the answer to "show me your work."
+function FloorStructureBlock({ floors }: { floors: ProjectSnapshot["floors"] }) {
+  const [showEvidence, setShowEvidence] = useState(false);
+
+  const groundLabel = [
+    floors.hasLowerGround && "Lower Ground (LG)",
+    floors.hasGroundFloor && "Ground Floor (GF)",
+    floors.hasUpperGround && "Upper Ground (UG)",
+  ].filter(Boolean).join(" · ") || null;
+
+  const rows: { label: string; value: string; detail?: string }[] = [];
+  if (floors.basements > 0) {
+    rows.push({
+      label: "Below grade",
+      value: `${floors.basements} basement${floors.basements === 1 ? "" : "s"}`,
+      detail: compactRange("B", floors.basementNumbers),
+    });
+  }
+  if (groundLabel) {
+    rows.push({ label: "At grade", value: groundLabel });
+  }
+  if (floors.podiumLevels > 0) {
+    rows.push({
+      label: "Mid-level (podium)",
+      value: `${floors.podiumLevels} level${floors.podiumLevels === 1 ? "" : "s"} — typically parking / retail`,
+      detail: compactRange("P", floors.podiumNumbers),
+    });
+  }
+  if (floors.mezzanines > 0) {
+    rows.push({ label: "Mezzanine", value: `${floors.mezzanines}`, detail: "" });
+  }
+  if (floors.typicalFloors > 0) {
+    rows.push({
+      label: "Habitable / typical",
+      value: `${floors.typicalFloors} floor${floors.typicalFloors === 1 ? "" : "s"}`,
+      detail: compactRange("L", floors.typicalNumbers),
+    });
+  }
+  if (floors.hasPenthouse) rows.push({ label: "Penthouse", value: "detected" });
+  if (floors.hasPlantLevel) rows.push({ label: "Plant / MEP level", value: "detected" });
+  if (floors.hasRoof)      rows.push({ label: "Roof", value: "detected" });
+
+  return (
+    <div className="mb-4 rounded-xl border border-border bg-overlay/[0.02] px-4 py-3">
+      <div className="flex items-center gap-2 mb-3">
+        <LayersIcon size={12} className="text-primary" />
+        <span className="text-[11px] uppercase tracking-wider font-bold text-text-secondary">Floor Structure</span>
+        <span className="text-[10px] text-text-secondary">— extracted from WBS</span>
+        <button
+          onClick={() => setShowEvidence((v) => !v)}
+          className="ml-auto text-[10px] uppercase tracking-wider font-semibold text-text-secondary hover:text-primary transition-colors"
+        >
+          {showEvidence ? "Hide audit" : `Audit (${floors.evidence.length} markers)`}
+        </button>
+      </div>
+
+      <div className="space-y-1.5">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-baseline gap-3 text-xs">
+            <span className="text-text-secondary uppercase tracking-wider text-[10px] font-semibold w-36 shrink-0">
+              {r.label}
+            </span>
+            <span className="text-text-primary font-semibold">{r.value}</span>
+            {r.detail && <span className="text-text-secondary font-mono text-[11px]">{r.detail}</span>}
+          </div>
+        ))}
+        {rows.length === 0 && (
+          <div className="text-[11px] text-text-secondary">No floor structure markers detected in WBS.</div>
+        )}
+      </div>
+
+      {showEvidence && (
+        <div className="mt-3 pt-3 border-t border-border">
+          <div className="text-[10px] uppercase tracking-wider text-text-secondary font-semibold mb-2">
+            Raw markers (WBS source → bucket)
+          </div>
+          <div className="max-h-48 overflow-y-auto space-y-0.5 font-mono text-[10px]">
+            {floors.evidence.map((e, i) => (
+              <div key={i} className="flex items-center gap-2 text-text-secondary">
+                <code className="bg-overlay/[0.05] px-1 rounded">{e.marker}</code>
+                <span className="opacity-60">→ {e.bucket}</span>
+                <span className="opacity-50 truncate">in &quot;{e.source}&quot;</span>
+              </div>
+            ))}
+            {floors.evidence.length === 0 && <div className="text-text-secondary">No markers.</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }

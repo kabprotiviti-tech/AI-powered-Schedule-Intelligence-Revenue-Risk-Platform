@@ -94,15 +94,24 @@ export type Component =
   | "Specialty";     // pool, gym, kitchen equipment, lab fitouts
 
 export interface FloorBreakdown {
-  basements: number;       // B1, B2, …
-  podiumLevels: number;    // P1, P2 (often parking / retail)
-  typicalFloors: number;   // standard residential / office floors
+  basements: number;          // B1, B2, …
+  basementNumbers: number[];  // [1, 2, 3] for audit
+  podiumLevels: number;       // P1, P2 (often parking / retail)
+  podiumNumbers: number[];    // [1, 2, 3, 4]
+  typicalFloors: number;      // standard residential / office floors
+  typicalNumbers: number[];   // [1, 2, ... 11]
   mezzanines: number;
+  hasLowerGround: boolean;    // LG / LGF — counts as ground variant
   hasGroundFloor: boolean;
+  hasUpperGround: boolean;    // UG — sits between GF and podium in some conventions
   hasRoof: boolean;
   hasPenthouse: boolean;
-  totalAboveGrade: number; // GF + podium + typical + mezz + penthouse
-  rawMarkers: string[];    // detected wbs/activity floor markers (for audit)
+  hasPlantLevel: boolean;     // dedicated MEP / service floor
+  totalAboveGrade: number;    // GF + podium + typical + mezz + penthouse + plant
+  // Evidence: each detected level/marker with the WBS node text it came from.
+  // Lets the UI render "L05 — found in 'Tower 1 > Superstructure > L05 Slab'"
+  // and lets a reviewer audit whether the count is right.
+  evidence: { marker: string; bucket: string; source: string }[];
 }
 
 // Alternates — runner-up asset classifications. A mixed-use hospital tower
@@ -322,23 +331,45 @@ const COMPONENT_KEYWORDS: Record<Component, RegExp> = {
 };
 
 // ── Floor markers ──────────────────────────────────────────────────────────
-// Patterns require explicit anchors (Level/Floor/Lvl/L##/F##) so activity text
-// like "F4 grade concrete" or "Pour L2 slab section" doesn't pollute floor counts.
-// "Bare F" / "bare L" without a digit-anchor pattern is rejected.
-const FLOOR_PATTERNS: { re: RegExp; bucket: "basement" | "podium" | "ground" | "mezz" | "typical" | "penthouse" | "roof" }[] = [
-  { re: /\b(bsmt|basement)[\s\-_]?\d{1,2}\b/i,                bucket: "basement" },
-  { re: /\bB[\s\-_]?(\d{1,2})\b/,                              bucket: "basement" },   // case-sensitive B1/B-1
-  { re: /\bpodium[\s\-_]?\d{1,2}\b/i,                          bucket: "podium" },
-  { re: /\bP[\s\-_]?(\d{1,2})\b/,                              bucket: "podium" },     // case-sensitive P1/P-1
-  { re: /\b(gf|g\.f\.?|ground\s+floor)\b/i,                    bucket: "ground" },
-  { re: /\b(mezzanine|mezz)\b/i,                               bucket: "mezz" },
-  { re: /\b(penthouse|pent[-\s]?house)\b/i,                    bucket: "penthouse" },
-  { re: /\b(roof\s+top|rooftop|roof\s+level|roof\s+slab)\b/i,  bucket: "roof" },
-  // Typical floors — must be explicit: "Level 12", "Lvl 12", "L12", "L-12", "L_12", "12F", "Floor 12", "12th floor"
-  { re: /\b(level|lvl|floor)[\s\-_]+(\d{1,2})\b/i,             bucket: "typical" },
-  { re: /\bL[\s\-_]?(\d{1,2})\b/,                              bucket: "typical" },   // case-sensitive L01/L-12
-  { re: /\b(\d{1,2})(st|nd|rd|th)\s+floor\b/i,                 bucket: "typical" },
-  { re: /\b(\d{1,2})F\b/,                                      bucket: "typical" },   // case-sensitive 12F
+// Patterns require explicit anchors (Level/Floor/Lvl/L##/B##/P##) so activity
+// text like "F4 grade concrete" doesn't pollute floor counts.
+//
+// Two-stage matching:
+//  1. Whole-text patterns (single-shot, scan full WBS strings) catch compound
+//     phrases like "Basement Level 2", "Lower Ground", "Service Floor 5",
+//     "Plant Room Level", "Tower Floor 12".
+//  2. Token-level patterns (per whitespace-split token) catch compact forms
+//     "B01", "P-2", "L12", "12F".
+type Bucket = "basement" | "podium" | "ground" | "lowerGround" | "upperGround" |
+              "mezz" | "typical" | "penthouse" | "roof" | "plant";
+
+const WHOLE_TEXT_PATTERNS: { re: RegExp; bucket: Bucket }[] = [
+  { re: /\b(basement|bsmt)\s+(level\s+|lvl\s+)?(\d{1,2})\b/i,            bucket: "basement" },
+  { re: /\b(podium|pod)\s+(level\s+|lvl\s+)?(\d{1,2})\b/i,                bucket: "podium" },
+  { re: /\b(lower\s+ground|lgf|lg\b)/i,                                   bucket: "lowerGround" },
+  { re: /\b(upper\s+ground|ugf|ug\b)/i,                                   bucket: "upperGround" },
+  { re: /\b(ground\s+floor|gf|g\.f\.?)\b/i,                               bucket: "ground" },
+  { re: /\b(mezzanine|mezz)\s*\d?/i,                                      bucket: "mezz" },
+  { re: /\b(penthouse|pent[-\s]?house)\b/i,                               bucket: "penthouse" },
+  { re: /\b(roof\s+top|rooftop|roof\s+level|roof\s+slab|roof\s+plant)\b/i,bucket: "roof" },
+  { re: /\b(plant\s+room\s+level|plant\s+level|mep\s+(floor|level)|service\s+floor)\b/i, bucket: "plant" },
+  // "Level 12", "Lvl 01", "Floor 12", "12th Floor", "Tower Floor 5", "Guest Floor 8"
+  { re: /\b(tower\s+|guest\s+|typical\s+)?(level|lvl|floor|fl)\s+(\d{1,2})\b/i, bucket: "typical" },
+  { re: /\b(\d{1,2})(st|nd|rd|th)\s+floor\b/i,                            bucket: "typical" },
+];
+
+// Token-level patterns (each WBS token tested individually after split)
+const TOKEN_PATTERNS: { re: RegExp; bucket: Bucket; captureIdx: number }[] = [
+  { re: /^B(\d{1,2})$/,           bucket: "basement", captureIdx: 1 },  // B01
+  { re: /^B-(\d{1,2})$/,          bucket: "basement", captureIdx: 1 },  // B-01
+  { re: /^P(\d{1,2})$/,           bucket: "podium",   captureIdx: 1 },  // P01
+  { re: /^P-(\d{1,2})$/,          bucket: "podium",   captureIdx: 1 },
+  { re: /^L(\d{1,2})$/,           bucket: "typical",  captureIdx: 1 },  // L01
+  { re: /^L-(\d{1,2})$/,          bucket: "typical",  captureIdx: 1 },
+  { re: /^F(\d{1,2})$/,           bucket: "typical",  captureIdx: 1 },  // F12
+  { re: /^(\d{1,2})F$/,           bucket: "typical",  captureIdx: 1 },  // 12F
+  { re: /^M(\d{1,2})$/,           bucket: "mezz",     captureIdx: 1 },  // M01 numbered mezz
+  { re: /^MZ(\d{1,2})$/,          bucket: "mezz",     captureIdx: 1 },
 ];
 
 // ── Asset-type groupings for the vertical-vs-flat gate ─────────────────────
@@ -535,63 +566,124 @@ function detectAsset(
 }
 
 function detectFloors(s: Schedule): FloorBreakdown {
-  const breakdown = {
-    basements: 0, podiumLevels: 0, typicalFloors: 0, mezzanines: 0,
-    hasGroundFloor: false, hasRoof: false, hasPenthouse: false,
-    totalAboveGrade: 0, rawMarkers: [] as string[],
-  };
-
-  const seenLevels: Record<string, Set<number>> = {
+  const seen: Record<"basement"|"podium"|"typical", Set<number>> = {
     basement: new Set(), podium: new Set(), typical: new Set(),
   };
-  const seenFlags = { ground: false, mezz: false, penthouse: false, roof: false };
+  const flags = {
+    ground: false, lowerGround: false, upperGround: false,
+    mezz: false, mezzCount: 0, penthouse: false, roof: false, plant: false,
+  };
+  const evidence: { marker: string; bucket: string; source: string }[] = [];
 
-  // Tokenize text on whitespace and inspect each token; first matching pattern
-  // wins per token so "L0" doesn't get counted as both ground AND typical floor 0.
-  const inspect = (txt: string) => {
+  const recordNum = (bucket: "basement"|"podium"|"typical", n: number, marker: string, source: string) => {
+    if (n < 0 || n >= 100) return;
+    if (!seen[bucket].has(n) && evidence.length < 80) {
+      evidence.push({ marker, bucket, source });
+    }
+    seen[bucket].add(n);
+  };
+  const recordFlag = (bucket: "ground"|"lowerGround"|"upperGround"|"mezz"|"penthouse"|"roof"|"plant", marker: string, source: string) => {
+    if (bucket === "ground" && !flags.ground)           evidence.push({ marker, bucket, source });
+    if (bucket === "lowerGround" && !flags.lowerGround) evidence.push({ marker, bucket, source });
+    if (bucket === "upperGround" && !flags.upperGround) evidence.push({ marker, bucket, source });
+    if (bucket === "penthouse" && !flags.penthouse)     evidence.push({ marker, bucket, source });
+    if (bucket === "roof" && !flags.roof)               evidence.push({ marker, bucket, source });
+    if (bucket === "plant" && !flags.plant)             evidence.push({ marker, bucket, source });
+    if (bucket === "mezz") {
+      flags.mezzCount++;
+      if (flags.mezzCount <= 3) evidence.push({ marker, bucket, source });
+    }
+    if (bucket === "ground")      flags.ground = true;
+    if (bucket === "lowerGround") flags.lowerGround = true;
+    if (bucket === "upperGround") flags.upperGround = true;
+    if (bucket === "mezz")        flags.mezz = true;
+    if (bucket === "penthouse")   flags.penthouse = true;
+    if (bucket === "roof")        flags.roof = true;
+    if (bucket === "plant")       flags.plant = true;
+  };
+
+  const inspect = (txt: string, source: string) => {
     if (!txt) return;
-    const tokens = txt.split(/[\s,;:|/()]+/);
+
+    // Pass 1: whole-text scan for compound phrases ("Basement Level 2",
+    // "Lower Ground", "Plant Room Level"). All patterns global-flagged so we
+    // catch multiple occurrences in one WBS string.
+    for (const { re, bucket } of WHOLE_TEXT_PATTERNS) {
+      const gre = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
+      let m: RegExpExecArray | null;
+      while ((m = gre.exec(txt)) !== null) {
+        if (bucket === "basement" || bucket === "podium" || bucket === "typical") {
+          // Last capture group is the number
+          const numStr = m[m.length - 1] ?? "";
+          const n = parseInt(numStr, 10);
+          if (!isNaN(n)) recordNum(bucket, n, m[0], source);
+        } else {
+          recordFlag(bucket, m[0], source);
+        }
+      }
+    }
+
+    // Pass 2: token-level scan for compact codes ("B01", "P-2", "L12", "12F").
+    // Tokens are split on whitespace + common WBS separators.
+    const tokens = txt.split(/[\s,;:|/()\[\]]+/).filter(Boolean);
     for (const tok of tokens) {
-      for (const { re, bucket } of FLOOR_PATTERNS) {
+      for (const { re, bucket, captureIdx } of TOKEN_PATTERNS) {
         const m = tok.match(re);
         if (!m) continue;
-        if (bucket === "ground")         seenFlags.ground    = true;
-        else if (bucket === "mezz")      seenFlags.mezz      = true;
-        else if (bucket === "penthouse") seenFlags.penthouse = true;
-        else if (bucket === "roof")      seenFlags.roof      = true;
-        else {
-          const numStr = m[2] ?? m[1];
-          const n = parseInt(numStr, 10);
-          if (!isNaN(n) && n >= 0 && n < 100) {
-            seenLevels[bucket].add(n);
-            if (breakdown.rawMarkers.length < 20) breakdown.rawMarkers.push(m[0]);
+        if (bucket === "basement" || bucket === "podium" || bucket === "typical" || bucket === "mezz") {
+          const n = parseInt(m[captureIdx] ?? "", 10);
+          if (bucket === "mezz") {
+            recordFlag("mezz", tok, source);
+          } else if (!isNaN(n)) {
+            recordNum(bucket, n, tok, source);
           }
         }
-        break; // first matching bucket wins for this token
+        break; // first match wins per token
       }
     }
   };
 
-  // WBS only — activity-name text is too noisy ("F4 grade concrete", "L2 cabling
-  // test") and produced false floor markers. WBS structure is where planners
-  // actually encode the building geometry.
+  // WBS only — activity-name text is too noisy ("F4 grade concrete", "L2
+  // cabling test") and produced false floor markers. WBS structure is where
+  // planners actually encode the building geometry.
   for (const w of s.wbs) {
-    inspect(w.name);
-    inspect(w.code);
+    if (w.name) inspect(w.name, w.name);
+    if (w.code) inspect(w.code, w.code);
   }
 
-  breakdown.basements    = seenLevels.basement.size;
-  breakdown.podiumLevels = seenLevels.podium.size;
-  breakdown.typicalFloors = seenLevels.typical.size;
-  breakdown.hasGroundFloor = seenFlags.ground;
-  breakdown.hasRoof        = seenFlags.roof;
-  breakdown.hasPenthouse   = seenFlags.penthouse;
-  breakdown.mezzanines     = seenFlags.mezz ? 1 : 0;
-  breakdown.totalAboveGrade =
-    (seenFlags.ground ? 1 : 0) + breakdown.podiumLevels + breakdown.typicalFloors +
-    breakdown.mezzanines + (seenFlags.penthouse ? 1 : 0);
+  const basementNumbers = Array.from(seen.basement).sort((a, b) => a - b);
+  const podiumNumbers   = Array.from(seen.podium).sort((a, b) => a - b);
+  const typicalNumbers  = Array.from(seen.typical).sort((a, b) => a - b);
 
-  return breakdown;
+  // Habitable / above-grade total: ground (counted once, lower OR regular OR
+  // upper) + podium + typical + mezzanines + penthouse + plant floor.
+  const groundCount = (flags.ground || flags.lowerGround || flags.upperGround) ? 1 : 0;
+  const mezzCount   = Math.min(flags.mezzCount, 5); // cap so noise doesn't inflate
+  const totalAboveGrade =
+    groundCount +
+    podiumNumbers.length +
+    typicalNumbers.length +
+    mezzCount +
+    (flags.penthouse ? 1 : 0) +
+    (flags.plant ? 1 : 0);
+
+  return {
+    basements: basementNumbers.length,
+    basementNumbers,
+    podiumLevels: podiumNumbers.length,
+    podiumNumbers,
+    typicalFloors: typicalNumbers.length,
+    typicalNumbers,
+    mezzanines: mezzCount,
+    hasLowerGround: flags.lowerGround,
+    hasGroundFloor: flags.ground,
+    hasUpperGround: flags.upperGround,
+    hasRoof: flags.roof,
+    hasPenthouse: flags.penthouse,
+    hasPlantLevel: flags.plant,
+    totalAboveGrade,
+    evidence,
+  };
 }
 
 function detectComponents(text: string): {
