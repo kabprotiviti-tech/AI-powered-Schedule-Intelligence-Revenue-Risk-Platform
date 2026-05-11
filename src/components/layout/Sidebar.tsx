@@ -10,7 +10,7 @@ import { useSchedule } from "@/lib/schedule/ScheduleProvider";
 
 const NAV = [
   { label: "Dashboard",       href: "/",          icon: LayoutDashboard },
-  { label: "Import Schedule", href: "/upload",    icon: Upload },
+  { label: "Import",          href: "/upload",    icon: Upload },
   { label: "Compare",         href: "/compare",   icon: GitCompare },
   { label: "Segments",        href: "/segments",  icon: Layers },
   { label: "Projects",        href: "/projects",  icon: FolderKanban },
