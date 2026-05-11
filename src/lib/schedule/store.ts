@@ -9,9 +9,10 @@
 import { openDB, type IDBPDatabase, type DBSchema } from "idb";
 import type { Schedule } from "./types";
 import type { AssetType, Tier } from "./classifier";
+import type { Scenario } from "./scenario";
 
 const DB_NAME    = "nexus-schedules";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 export interface ClassifierOverride {
   scheduleId: string;
@@ -25,6 +26,7 @@ interface NexusDB extends DBSchema {
   schedules: { key: string; value: Schedule };
   meta:      { key: string; value: { selectedIds: string[] } };
   classifierOverrides: { key: string; value: ClassifierOverride };
+  scenarios: { key: string; value: Scenario };
 }
 
 let dbPromise: Promise<IDBPDatabase<NexusDB>> | null = null;
@@ -45,6 +47,12 @@ function getDB(): Promise<IDBPDatabase<NexusDB>> {
           // v2 → v3: classifier overrides store
           if (!db.objectStoreNames.contains("classifierOverrides")) {
             db.createObjectStore("classifierOverrides");
+          }
+        }
+        if (oldVersion < 4) {
+          // v3 → v4: scenarios store (what-if cases keyed by scenario id)
+          if (!db.objectStoreNames.contains("scenarios")) {
+            db.createObjectStore("scenarios");
           }
         }
       },
@@ -117,4 +125,21 @@ export async function setOverride(o: ClassifierOverride): Promise<void> {
 export async function clearOverride(scheduleId: string): Promise<void> {
   const db = await getDB();
   await db.delete("classifierOverrides", scheduleId);
+}
+
+// ── Scenarios ─────────────────────────────────────────────────────────────
+export async function listScenarios(scheduleId?: string): Promise<Scenario[]> {
+  const db = await getDB();
+  const all = await db.getAll("scenarios");
+  return scheduleId ? all.filter((s) => s.scheduleId === scheduleId) : all;
+}
+
+export async function saveScenarioRecord(s: Scenario): Promise<void> {
+  const db = await getDB();
+  await db.put("scenarios", s, s.id);
+}
+
+export async function deleteScenarioRecord(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete("scenarios", id);
 }
