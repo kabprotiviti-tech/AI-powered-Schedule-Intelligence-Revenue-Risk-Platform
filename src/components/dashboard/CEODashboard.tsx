@@ -6,6 +6,7 @@ import type { ScheduleAnalytics } from "@/lib/schedule/analytics";
 import { ragFromStats } from "@/lib/schedule/stats";
 import { BenchmarkPanel } from "./BenchmarkPanel";
 import { AchievabilityPanel } from "./AchievabilityPanel";
+import { ProjectSnapshotPanel } from "./ProjectSnapshotPanel";
 
 const ragColors = { Red: "var(--danger)", Amber: "var(--warning)", Green: "var(--success)" } as const;
 
@@ -87,6 +88,9 @@ export function CEODashboard({ schedule, analytics }: { schedule: Schedule; anal
           tone={cpm.critical.size > stats.totalActivities * 0.3 ? "warning" : "neutral"}
         />
       </div>
+
+      {/* Project snapshot — what IS this project? */}
+      <ProjectSnapshotPanel snapshot={analytics.snapshot} compact />
 
       {/* Achievability — sits above benchmark since it directly answers "will we deliver?" */}
       <AchievabilityPanel schedule={schedule} achievability={analytics.achievability} compact />

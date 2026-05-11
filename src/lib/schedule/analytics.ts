@@ -7,6 +7,7 @@ import { runDCMA, type DCMAResult }                 from "./dcma";
 import { runBaseline, type BaselineVariance }       from "./baseline";
 import { computeStats, type PortfolioStats }        from "./stats";
 import { runAchievability, type AchievabilityResult } from "./achievability";
+import { classifyProject, type ProjectSnapshot }      from "./classifier";
 
 export interface ScheduleAnalytics {
   stats:         PortfolioStats;
@@ -14,6 +15,7 @@ export interface ScheduleAnalytics {
   dcma:          DCMAResult;
   baseline:      BaselineVariance;
   achievability: AchievabilityResult;
+  snapshot:      ProjectSnapshot;
 }
 
 const cache = new Map<string, ScheduleAnalytics>();
@@ -27,8 +29,9 @@ export function getAnalytics(s: Schedule): ScheduleAnalytics {
   const baseline      = runBaseline(s);
   const stats         = computeStats(s);
   const achievability = runAchievability(s, cpm, dcma, baseline);
+  const snapshot      = classifyProject(s);
 
-  const result = { stats, cpm, dcma, baseline, achievability };
+  const result = { stats, cpm, dcma, baseline, achievability, snapshot };
   cache.set(s.id, result);
   return result;
 }

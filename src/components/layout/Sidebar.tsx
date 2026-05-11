@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, FolderKanban, AlertTriangle,
-  BarChart3, FileDown, Settings, Zap, Upload, GitCompare,
+  BarChart3, FileDown, Settings, Zap, Upload, GitCompare, Layers,
 } from "lucide-react";
 import clsx from "clsx";
 import { useSchedule } from "@/lib/schedule/ScheduleProvider";
@@ -12,6 +12,7 @@ const NAV = [
   { label: "Dashboard",       href: "/",          icon: LayoutDashboard },
   { label: "Import Schedule", href: "/upload",    icon: Upload },
   { label: "Compare",         href: "/compare",   icon: GitCompare },
+  { label: "Segments",        href: "/segments",  icon: Layers },
   { label: "Projects",        href: "/projects",  icon: FolderKanban },
   { label: "Risk Register",   href: "/risks",     icon: AlertTriangle },
   { label: "Analytics",       href: "/analytics", icon: BarChart3 },

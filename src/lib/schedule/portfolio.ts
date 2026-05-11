@@ -20,6 +20,7 @@ import { runDCMA, type DCMAResult, type DCMACheck, type CheckStatus } from "./dc
 import { runBaseline, type BaselineVariance, type ActivityVariance } from "./baseline";
 import { computeStats, type PortfolioStats }   from "./stats";
 import { runAchievability, type AchievabilityResult } from "./achievability";
+import { classifyProject, type ProjectSnapshot }      from "./classifier";
 import type { ScheduleAnalytics } from "./analytics";
 
 // ── Combined schedule (purely synthetic — never persisted) ──────────────────
@@ -278,7 +279,28 @@ function aggregateAnalytics(schedules: Schedule[]): ScheduleAnalytics {
     problemActivities: { total: totalProblems, bySeverity, byReason, top: topProblems },
   };
 
-  return { stats, cpm, dcma, baseline, achievability };
+  // Portfolio-level snapshot: classify each underlying schedule, then pick the
+  // majority asset type and highest tier as the headline. Per-schedule
+  // snapshots stay available via classifyProject() on /segments.
+  const perSnapshots = perSchedule.map((r) => classifyProject(r.s));
+  const counts = new Map<string, number>();
+  for (const sn of perSnapshots) counts.set(sn.assetType, (counts.get(sn.assetType) ?? 0) + 1);
+  const dominant = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0][0] as ProjectSnapshot["assetType"];
+  const winner = perSnapshots.find((sn) => sn.assetType === dominant)!;
+  const tierRank = { A: 3, B: 2, C: 1 } as const;
+  const topTier = perSnapshots
+    .map((sn) => sn.tier)
+    .reduce((max, t) => (tierRank[t] > tierRank[max] ? t : max), "C" as ProjectSnapshot["tier"]);
+
+  const snapshot: ProjectSnapshot = {
+    ...winner,
+    tier:           topTier,
+    tierLabel:      topTier === "A" ? "Tier A — Mega / Complex" : topTier === "B" ? "Tier B — Mid-Scale" : "Tier C — Small / Simple",
+    tierRationale:  `portfolio of ${perSchedule.length} schedules · dominant type "${winner.assetLabel}" (${counts.get(dominant)}/${perSchedule.length})`,
+    headline:       `${perSchedule.length} schedules · majority ${winner.assetLabel} · Tier ${topTier}`,
+  };
+
+  return { stats, cpm, dcma, baseline, achievability, snapshot };
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -299,7 +321,8 @@ export function getPortfolio(schedules: Schedule[]): { schedule: Schedule; analy
       const baseline = runBaseline(s);
       const stats = computeStats(s);
       const achievability = runAchievability(s, cpm, dcma, baseline);
-      return { stats, cpm, dcma, baseline, achievability };
+      const snapshot = classifyProject(s);
+      return { stats, cpm, dcma, baseline, achievability, snapshot };
     }
     return aggregateAnalytics(schedules);
   })();
