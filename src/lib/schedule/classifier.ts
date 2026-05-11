@@ -28,6 +28,13 @@ import type { Schedule } from "./types";
 type SourceText = { text: string; weight: number };
 
 // ── Asset type taxonomy ─────────────────────────────────────────────────────
+// Scoped to real-estate developer portfolios. A developer like ALDAR / Emaar /
+// Aldar Properties builds buildings (residential, commercial, hospitality,
+// civic) plus the masterplan-level packages around them (roads inside the
+// development, utilities, landscape). Pure infrastructure contractor work
+// (bridges, tunnels, airports, rail, ports) is intentionally NOT here — those
+// belong to a different tool. Marine works survive as a component (used on
+// waterfront villas/hotels), not as a top-level asset type.
 export type AssetType =
   | "HighRiseResidential"
   | "MidRiseResidential"
@@ -36,43 +43,31 @@ export type AssetType =
   | "MixedUseTower"
   | "RetailMall"
   | "Hospitality"
-  | "Industrial"
+  | "Industrial"            // logistics / warehouse — developers do these
   | "Healthcare"
   | "Education"
   | "Government"
-  | "Cultural"           // mosque, church, museum, theatre
-  | "Infrastructure_Road"
-  | "Infrastructure_Bridge"
-  | "Infrastructure_Tunnel"
-  | "Infrastructure_Airport"
-  | "Infrastructure_Marine"
-  | "Infrastructure_Rail"
-  | "Utility"            // water, sewage, power, district cooling
-  | "Landscape"          // standalone landscape / park
+  | "Cultural"              // mosque, church, museum, theatre, community centre
+  | "SiteInfrastructure"    // masterplan roads, utilities, district cooling — standalone packages
+  | "Landscape"             // standalone landscape / public realm phase
   | "Generic";
 
 export const ASSET_LABELS: Record<AssetType, string> = {
-  HighRiseResidential:     "High-Rise Residential",
-  MidRiseResidential:      "Mid-Rise Residential",
-  Villa:                   "Villa / Low-Rise Residential",
-  OfficeTower:             "Office / Commercial Tower",
-  MixedUseTower:           "Mixed-Use Development",
-  RetailMall:              "Retail / Mall",
-  Hospitality:             "Hotel / Hospitality",
-  Industrial:              "Industrial / Warehouse",
-  Healthcare:              "Healthcare / Hospital",
-  Education:               "Education / Campus",
-  Government:              "Government / Civic",
-  Cultural:                "Cultural / Religious",
-  Infrastructure_Road:     "Roads & Highways",
-  Infrastructure_Bridge:   "Bridges & Viaducts",
-  Infrastructure_Tunnel:   "Tunnels & Metro",
-  Infrastructure_Airport:  "Airport / Aviation",
-  Infrastructure_Marine:   "Marine / Ports",
-  Infrastructure_Rail:     "Rail",
-  Utility:                 "Utilities",
-  Landscape:               "Landscape / Parks",
-  Generic:                 "Generic / Unclassified",
+  HighRiseResidential:  "High-Rise Residential",
+  MidRiseResidential:   "Mid-Rise Residential",
+  Villa:                "Villa / Townhouse",
+  OfficeTower:          "Office / Commercial",
+  MixedUseTower:        "Mixed-Use Development",
+  RetailMall:           "Retail / Mall",
+  Hospitality:          "Hotel / Hospitality",
+  Industrial:           "Industrial / Logistics",
+  Healthcare:           "Healthcare",
+  Education:            "Education",
+  Government:           "Government / Civic",
+  Cultural:             "Cultural / Religious",
+  SiteInfrastructure:   "Site Infrastructure",
+  Landscape:            "Landscape / Public Realm",
+  Generic:              "Generic / Unclassified",
 };
 
 export type Tier = "A" | "B" | "C";
@@ -167,6 +162,9 @@ export interface ClassifierOverrideInput {
 }
 
 // ── Keyword sets ────────────────────────────────────────────────────────────
+// Tuned for real-estate developer schedules. Keywords reflect names commonly
+// found in P6/MSP WBS for residential/commercial/hospitality projects in the
+// GCC and similar markets.
 const ASSET_KEYWORDS: Record<AssetType, RegExp[]> = {
   HighRiseResidential: [
     /\b(residential\s+tower|apartment\s+tower|tower\s+block|residences)\b/i,
@@ -200,7 +198,7 @@ const ASSET_KEYWORDS: Record<AssetType, RegExp[]> = {
     /\b(loading\s+dock|silo|production\s+line)\b/i,
   ],
   Healthcare: [
-    /\b(hospital|clinic|medical\s+(center|centre|facility)|healthcare|polyclinic|dialysis|surgical\s+(suite|center)|OR|ICU)\b/i,
+    /\b(hospital|clinic|medical\s+(center|centre|facility)|healthcare|polyclinic|dialysis|surgical\s+(suite|center)|ICU)\b/i,
     /\b(operating\s+(theatre|room)|patient\s+(room|ward)|pharmacy)\b/i,
   ],
   Education: [
@@ -211,32 +209,19 @@ const ASSET_KEYWORDS: Record<AssetType, RegExp[]> = {
     /\b(government|municipal|ministry|embassy|consulate|civic\s+(center|centre)|courthouse|police\s+(station|HQ)|customs)\b/i,
   ],
   Cultural: [
-    /\b(mosque|church|cathedral|synagogue|temple|museum|gallery|theatre|theater|opera|concert\s+hall|cultural\s+center|cultural\s+centre)\b/i,
+    /\b(mosque|church|cathedral|synagogue|temple|museum|gallery|theatre|theater|opera|concert\s+hall|cultural\s+center|cultural\s+centre|community\s+(center|centre))\b/i,
   ],
-  Infrastructure_Road: [
-    /\b(road|highway|motorway|carriageway|interchange|junction|intersection|pavement|asphalt|shoulder|kerb|curb)\b/i,
-    /\b(road\s+widening|road\s+upgrade|street\s+upgrade)\b/i,
-  ],
-  Infrastructure_Bridge: [
-    /\b(bridge|overpass|underpass|viaduct|flyover|pedestrian\s+bridge|cable[-\s]stayed|suspension\s+bridge)\b/i,
-  ],
-  Infrastructure_Tunnel: [
-    /\b(tunnel|metro|subway|underground\s+(rail|line)|TBM|cut[-\s]and[-\s]cover)\b/i,
-  ],
-  Infrastructure_Airport: [
-    /\b(airport|runway|terminal\s+building|apron|taxiway|airside|landside|ATC\s+tower|control\s+tower)\b/i,
-  ],
-  Infrastructure_Marine: [
-    /\b(port|jetty|marina|quay|breakwater|dock|harbor|harbour|wharf|seawall|coastal\s+protection)\b/i,
-  ],
-  Infrastructure_Rail: [
-    /\b(rail|railway|train\s+station|locomotive|track\s+ballast|sleeper|signalling|signaling|catenary)\b/i,
-  ],
-  Utility: [
-    /\b(water\s+treatment|sewage\s+treatment|STP|WTP|substation|switchyard|power\s+plant|district\s+cooling|chiller\s+plant|pumping\s+station|reservoir)\b/i,
+  // Standalone masterplan packages: roads/utilities/district cooling that are
+  // contracted as their own project rather than as scope within a building.
+  SiteInfrastructure: [
+    /\b(masterplan|master\s+plan|site\s+infrastructure|infrastructure\s+(works|package)|enabling\s+works)\b/i,
+    /\b(internal\s+road\s+network|spine\s+road|primary\s+road|secondary\s+road|service\s+road\s+network)\b/i,
+    /\b(district\s+cooling|district\s+heating|chiller\s+plant\s+package|substation\s+package|main\s+substation)\b/i,
+    /\b(water\s+treatment|sewage\s+treatment|STP|WTP|switchyard|pumping\s+station\s+package|reservoir|deep\s+sewer)\b/i,
+    /\b(utilities\s+(diversion|package)|trunk\s+(main|sewer|cable))\b/i,
   ],
   Landscape: [
-    /\b(park|landscape\s+only|public\s+realm|plaza|hardscape|softscape|community\s+park|botanical|streetscape\b)/i,
+    /\b(landscape\s+(only|package|works)|public\s+realm|plaza|hardscape\s+package|softscape\s+package|community\s+park|botanical|streetscape|park\s+(package|development))\b/i,
   ],
   Generic: [],
 };
@@ -251,34 +236,18 @@ const ASSET_KEYWORDS: Record<AssetType, RegExp[]> = {
 // every building has "internal road", "junction box", "loading dock", and
 // those should not fire infrastructure classifications.
 const SUPPRESS_CONTEXT: Partial<Record<AssetType, RegExp[]>> = {
-  Infrastructure_Road: [
-    /\b(internal|service|access|site|perimeter|fire|emergency|loop|spine|main|ring|approach)\s+road\b/i,
+  // Site infrastructure: a building has internal roads / junction boxes / a
+  // chiller plant room / a building substation — those are sub-scope of a
+  // building project, not a standalone site-works package.
+  SiteInfrastructure: [
+    /\b(internal|service|access|site|perimeter|fire|emergency|loop|main|ring|approach)\s+road\b/i,
     /\b(electrical\s+)?junction\s+box(es)?\b/i,
     /\bj[-\s]?box\b/i,
     /\b(road|kerb|curb)\s+stones?\b/i,
     /\bdriveway\s+(asphalt|paving)\b/i,
-  ],
-  Infrastructure_Marine: [
-    /\bloading\s+(dock|bay)s?\b/i,
-    /\bdock\s+(leveler|leveller|seal|shelter)\b/i,
-    /\bpool\s+deck\b/i,
-  ],
-  Infrastructure_Tunnel: [
-    /\b(mep|service|cable|utility|escape|access|pedestrian)\s+tunnel\b/i,
-    /\bpedestrian\s+underpass\b/i,
-  ],
-  Infrastructure_Airport: [
-    /\b(bus|ferry|cruise|cable\s+car|metro|train|coach)\s+terminal\b/i,
-    /\bterminal\s+(equipment|block|unit|box)\b/i,
-  ],
-  Infrastructure_Rail: [
-    /\bcable\s+tray\b/i,
-    /\b(stair|hand|guard|safety)\s+rail\b/i,
-    /\bcurtain\s+track\b/i,
-  ],
-  Infrastructure_Bridge: [
-    /\bpedestrian\s+(bridge|link)\b/i,
-    /\b(footbridge|skybridge|sky\s+bridge|link\s+bridge)\b/i,
+    /\b(building|main|electrical|mv|hv|lv)\s+substation\b/i,
+    /\b(chiller|district\s+cooling|cooling)\s+plant\s+room\b/i,
+    /\b(domestic|booster)\s+pumping\s+station\b/i,
   ],
   Healthcare: [
     /\b(prayer|wellness|staff|fitness|first\s+aid)\s+(room|clinic|center|centre)\b/i,
@@ -287,11 +256,6 @@ const SUPPRESS_CONTEXT: Partial<Record<AssetType, RegExp[]>> = {
   Cultural: [
     /\bprayer\s+room\b/i,
   ],
-  Utility: [
-    /\b(building|main|electrical|mv|hv|lv)\s+substation\b/i,
-    /\b(chiller|district\s+cooling|cooling)\s+plant\s+room\b/i,
-    /\b(domestic|booster)\s+pumping\s+station\b/i,
-  ],
   Education: [
     /\btraining\s+room\b/i,
     /\bschool\s+furniture\b/i,
@@ -299,11 +263,17 @@ const SUPPRESS_CONTEXT: Partial<Record<AssetType, RegExp[]>> = {
   Industrial: [
     /\b(plant|equipment)\s+room\b/i,
   ],
+  Landscape: [
+    // Internal landscape inside a building scope isn't a Landscape *project*
+    /\b(internal|courtyard|atrium|lobby)\s+landscape\b/i,
+  ],
 };
 
 // Strong signals that override otherwise ambiguous matches.
 // Patterns are tightened to require asset-context anchors so common English
 // words ("OR", "key milestones") don't trigger false classifications.
+// Pure-infrastructure overrides (airport/marine/bridge/tunnel/rail) removed
+// with the taxonomy slimdown — those asset types no longer exist.
 const STRONG_OVERRIDES: { test: RegExp; type: AssetType }[] = [
   // "350 keys" only counts when adjacent to hotel context, not "12 key milestones"
   { test: /\b\d+\s+keys?\s+(hotel|resort|hospitality|room|suite)|\b(hotel|resort)\s+\d+\s+keys?\b/i, type: "Hospitality" },
@@ -311,10 +281,6 @@ const STRONG_OVERRIDES: { test: RegExp; type: AssetType }[] = [
   { test: /\b(ICU|NICU|PICU|operating\s+theatre|operating\s+room|surgical\s+suite)\b/i, type: "Healthcare" },
   // OR with a number suffix (OR-1, OR1, OR 5) — actual operating-room codes
   { test: /\bOR[-\s]?\d+\b/,                         type: "Healthcare" },
-  { test: /\b(runway|apron|taxiway)\b/i,             type: "Infrastructure_Airport" },
-  { test: /\b(jetty|breakwater|quay\s+wall)\b/i,     type: "Infrastructure_Marine" },
-  { test: /\b(viaduct|cable[-\s]stayed)\b/i,         type: "Infrastructure_Bridge" },
-  { test: /\b(TBM|tunnel\s+boring)\b/i,              type: "Infrastructure_Tunnel" },
 ];
 
 // ── Component keyword sets ─────────────────────────────────────────────────
@@ -378,10 +344,11 @@ const BUILDING_TYPES: AssetType[] = [
   "MixedUseTower", "RetailMall", "Hospitality", "Industrial",
   "Healthcare", "Education", "Government", "Cultural",
 ];
+// Flat / horizontal scope — site-wide infrastructure or landscape packages.
+// If a schedule has clear building evidence (floors/podium/basement) these
+// can only win by dominating building evidence by ≥3× (vertical-vs-flat gate).
 const FLAT_INFRA_TYPES: AssetType[] = [
-  "Infrastructure_Road", "Infrastructure_Bridge", "Infrastructure_Tunnel",
-  "Infrastructure_Airport", "Infrastructure_Marine", "Infrastructure_Rail",
-  "Utility", "Landscape",
+  "SiteInfrastructure", "Landscape",
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -722,12 +689,10 @@ function classifyTier(args: {
   const reasons: string[] = [];
   const standardRefs: string[] = [];
 
-  // Asset-class prior — Healthcare, MixedUse, large infrastructure are mega
-  // by industry convention (PMI complexity high; AACE typically Class 3-5).
-  const megaAssets: AssetType[] = [
-    "Infrastructure_Airport", "Infrastructure_Tunnel", "Infrastructure_Rail",
-    "Healthcare", "MixedUseTower",
-  ];
+  // Asset-class prior — Healthcare and MixedUseTower are conventionally
+  // complex (regulatory load, multi-discipline integration). Villa and
+  // standalone landscape packages are typically small/simple.
+  const megaAssets: AssetType[] = ["Healthcare", "MixedUseTower"];
   const smallAssets: AssetType[] = ["Villa", "Landscape"];
 
   let tier: Tier = "B";
@@ -836,15 +801,21 @@ export function classifyProject(s: Schedule, override?: ClassifierOverrideInput)
   const floors = detectFloors(s);
   const corpus = buildCorpus(s);
 
+  // Drop stale overrides that point at an asset type the taxonomy no longer
+  // includes (we removed Bridge/Tunnel/Airport/Marine/Rail/Utility/Road
+  // when scoping to RE-developer use). Without this, an old override would
+  // silently render an "undefined" label and bypass classification.
+  const validOverride = override && ASSET_LABELS[override.assetType] ? override : undefined;
+
   // Run the heuristic regardless so alternates / evidence are still available
   // (useful UI even when the user has pinned an override).
   const detected = detectAsset(corpus, floors);
-  const asset = override?.assetType ?? detected.type;
-  const assetConfidence = override ? 1 : detected.confidence;
-  const assetEvidence = override
-    ? [`manual override: ${ASSET_LABELS[override.assetType]}`]
+  const asset = validOverride?.assetType ?? detected.type;
+  const assetConfidence = validOverride ? 1 : detected.confidence;
+  const assetEvidence = validOverride
+    ? [`manual override: ${ASSET_LABELS[validOverride.assetType]}`]
     : detected.evidence;
-  const alternates = override ? [] : detected.alternates;
+  const alternates = validOverride ? [] : detected.alternates;
 
   // Components still use a flat combined string (no source weighting needed
   // — components are binary "detected anywhere in scope").
@@ -858,8 +829,8 @@ export function classifyProject(s: Schedule, override?: ClassifierOverrideInput)
     activities: s.activities.length,
     durationDays,
   });
-  const tier = override?.tier ?? computedTier.tier;
-  const tierRationale = override?.tier
+  const tier = validOverride?.tier ?? computedTier.tier;
+  const tierRationale = validOverride?.tier
     ? `manual override · auto would have been Tier ${computedTier.tier} (${computedTier.rationale})`
     : computedTier.rationale;
 
@@ -871,10 +842,10 @@ export function classifyProject(s: Schedule, override?: ClassifierOverrideInput)
     alternates,
     tier,
     tierLabel:      TIER_LABELS[tier],
-    tierConfidence: override ? 1 : computedTier.confidence,
+    tierConfidence: validOverride ? 1 : computedTier.confidence,
     tierRationale,
     tierStandard:   computedTier.standard,
-    overridden:     !!override,
+    overridden:     !!validOverride,
     floors,
     components,
     componentDetails,
