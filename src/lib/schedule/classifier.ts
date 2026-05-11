@@ -509,7 +509,7 @@ function detectAsset(
     .sort((a, b) => b[1].weighted - a[1].weighted);
 
   if (sorted.length === 0) {
-    return { type: "Generic", confidence: 0, evidence: [] };
+    return { type: "Generic", confidence: 0, evidence: [], alternates: [] };
   }
 
   let [topType, topData] = sorted[0];
