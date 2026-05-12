@@ -8,6 +8,7 @@ import { runBaseline, type BaselineVariance }       from "./baseline";
 import { computeStats, type PortfolioStats }        from "./stats";
 import { runAchievability, type AchievabilityResult } from "./achievability";
 import { classifyProject, type ProjectSnapshot, type ClassifierOverrideInput } from "./classifier";
+import { runEVM, type EVMResult } from "./evm";
 
 export interface ScheduleAnalytics {
   stats:         PortfolioStats;
@@ -16,6 +17,7 @@ export interface ScheduleAnalytics {
   baseline:      BaselineVariance;
   achievability: AchievabilityResult;
   snapshot:      ProjectSnapshot;
+  evm:           EVMResult;
 }
 
 // Cache key includes override fingerprint so changing the override
@@ -36,8 +38,9 @@ export function getAnalytics(s: Schedule, override?: ClassifierOverrideInput): S
   const stats         = computeStats(s);
   const achievability = runAchievability(s, cpm, dcma, baseline);
   const snapshot      = classifyProject(s, override);
+  const evm           = runEVM(s);
 
-  const result = { stats, cpm, dcma, baseline, achievability, snapshot };
+  const result = { stats, cpm, dcma, baseline, achievability, snapshot, evm };
   cache.set(key, result);
   return result;
 }

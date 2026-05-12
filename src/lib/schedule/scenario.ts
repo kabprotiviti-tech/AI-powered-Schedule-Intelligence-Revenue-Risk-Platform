@@ -28,6 +28,7 @@ import { runBaseline }     from "./baseline";
 import { computeStats }    from "./stats";
 import { runAchievability } from "./achievability";
 import { classifyProject } from "./classifier";
+import { runEVM }          from "./evm";
 
 export interface ScenarioSelector {
   // Match WBS path containing this text (case-insensitive). Path is "Root / Branch / Leaf".
@@ -173,7 +174,8 @@ export function getAnalyticsUncached(s: Schedule): ScheduleAnalytics {
   const stats         = computeStats(s);
   const achievability = runAchievability(s, cpm, dcma, baseline);
   const snapshot      = classifyProject(s);
-  return { stats, cpm, dcma, baseline, achievability, snapshot };
+  const evm           = runEVM(s);
+  return { stats, cpm, dcma, baseline, achievability, snapshot, evm };
 }
 
 // ── Full scenario evaluation (base + mutated + diff) ───────────────────────

@@ -10,6 +10,7 @@ import type { CheckStatus } from "@/lib/schedule/dcma";
 import { BenchmarkPanel } from "./BenchmarkPanel";
 import { AchievabilityPanel } from "./AchievabilityPanel";
 import { ProjectSnapshotPanel } from "./ProjectSnapshotPanel";
+import { EVMPanel } from "./EVMPanel";
 
 const checkBadge: Record<CheckStatus, string> = {
   pass: "bg-success/15 text-success border-success/30",
@@ -67,6 +68,9 @@ export function PMODashboard({ schedule, analytics }: { schedule: Schedule; anal
         snapshot={analytics.snapshot}
         scheduleId={schedule.id.startsWith("__portfolio__") ? undefined : schedule.id}
       />
+
+      {/* Earned Value — board-grade cost performance */}
+      <EVMPanel evm={analytics.evm} />
 
       {/* Achievability */}
       <AchievabilityPanel schedule={schedule} achievability={analytics.achievability} />

@@ -21,6 +21,7 @@ import { runBaseline, type BaselineVariance, type ActivityVariance } from "./bas
 import { computeStats, type PortfolioStats }   from "./stats";
 import { runAchievability, type AchievabilityResult } from "./achievability";
 import { classifyProject, type ProjectSnapshot, type ClassifierOverrideInput } from "./classifier";
+import { runEVM, type EVMResult } from "./evm";
 import type { ScheduleAnalytics } from "./analytics";
 
 // ── Combined schedule (purely synthetic — never persisted) ──────────────────
@@ -303,7 +304,30 @@ function aggregateAnalytics(schedules: Schedule[], overrides?: Map<string, Class
     headline:       `${perSchedule.length} schedules · majority ${winner.assetLabel}`,
   };
 
-  return { stats, cpm, dcma, baseline, achievability, snapshot };
+  // Aggregate EVM: sum BAC/PV/EV/AC across constituent schedules. Indices are
+  // re-derived from the sums to stay self-consistent.
+  const evms = perSchedule.map((r) => runEVM(r.s));
+  const haveCost = evms.some((e) => e.hasCostData);
+  const sumBac = evms.reduce((s, e) => s + e.bac, 0);
+  const sumPv  = evms.reduce((s, e) => s + e.pv,  0);
+  const sumEv  = evms.reduce((s, e) => s + e.ev,  0);
+  const sumAc  = evms.reduce((s, e) => s + e.ac,  0);
+  const cpi = sumAc > 0 ? sumEv / sumAc : 1;
+  const spi = sumPv > 0 ? sumEv / sumPv : 1;
+  const eac = cpi > 0 ? sumBac / cpi : sumBac;
+  const evm: EVMResult = {
+    hasCostData: haveCost,
+    activitiesWithCost: evms.reduce((s, e) => s + e.activitiesWithCost, 0),
+    totalActivities:    evms.reduce((s, e) => s + e.totalActivities,    0),
+    bac: sumBac, pv: sumPv, ev: sumEv, ac: sumAc,
+    cv: sumEv - sumAc, sv: sumEv - sumPv,
+    cpi, spi, eac, etc: eac - sumAc, vac: sumBac - eac,
+    costStatus:     (sumEv - sumAc) < -0.05 * sumBac ? "unfavorable" : (sumEv - sumAc) >  0.05 * sumBac ? "favorable" : "neutral",
+    scheduleStatus: (sumEv - sumPv) < -0.05 * sumBac ? "unfavorable" : (sumEv - sumPv) >  0.05 * sumBac ? "favorable" : "neutral",
+    currency: perSchedule[0]?.s.project.currency,
+  };
+
+  return { stats, cpm, dcma, baseline, achievability, snapshot, evm };
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -339,7 +363,8 @@ export function getPortfolio(
       const stats = computeStats(s);
       const achievability = runAchievability(s, cpm, dcma, baseline);
       const snapshot = classifyProject(s, overrides?.get(s.id));
-      return { stats, cpm, dcma, baseline, achievability, snapshot };
+      const evm = runEVM(s);
+      return { stats, cpm, dcma, baseline, achievability, snapshot, evm };
     }
     return aggregateAnalytics(schedules, overrides);
   })();

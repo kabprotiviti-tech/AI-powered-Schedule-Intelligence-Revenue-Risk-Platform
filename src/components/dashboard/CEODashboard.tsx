@@ -7,6 +7,7 @@ import { ragFromStats } from "@/lib/schedule/stats";
 import { BenchmarkPanel } from "./BenchmarkPanel";
 import { AchievabilityPanel } from "./AchievabilityPanel";
 import { ProjectSnapshotPanel } from "./ProjectSnapshotPanel";
+import { EVMPanel } from "./EVMPanel";
 
 const ragColors = { Red: "var(--danger)", Amber: "var(--warning)", Green: "var(--success)" } as const;
 
@@ -95,6 +96,9 @@ export function CEODashboard({ schedule, analytics }: { schedule: Schedule; anal
         compact
         scheduleId={schedule.id.startsWith("__portfolio__") ? undefined : schedule.id}
       />
+
+      {/* Earned Value (compact) — money view for the executive read */}
+      <EVMPanel evm={analytics.evm} compact />
 
       {/* Achievability — sits above benchmark since it directly answers "will we deliver?" */}
       <AchievabilityPanel schedule={schedule} achievability={analytics.achievability} compact />

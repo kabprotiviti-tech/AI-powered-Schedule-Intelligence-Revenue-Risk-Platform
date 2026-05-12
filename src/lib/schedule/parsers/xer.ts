@@ -198,6 +198,13 @@ export function parseXER(text: string, fileName: string): Schedule {
         constraint,
         calendarId: t.clndr_id || undefined,
 
+        // Cost data for EVM. P6 splits actual into regular + overtime; sum them.
+        // Many schedules leave cost fields empty if the planner only tracks
+        // time, in which case EVM panel falls back to "no cost data".
+        budgetCost:    t.target_cost  !== undefined ? num(t.target_cost)  : undefined,
+        actualCost:    (t.act_reg_cost || t.act_ot_cost) !== undefined ? num(t.act_reg_cost) + num(t.act_ot_cost) : undefined,
+        remainingCost: t.remain_cost  !== undefined ? num(t.remain_cost)  : undefined,
+
         predecessors: [],   // filled below
       } satisfies ScheduleActivity;
     });
